@@ -101,6 +101,7 @@ export async function generateStudyItems(
 
     const textResponse = response.text.trim();
 
+    // Gestion du flag d'insuffisance
     if (textResponse.includes("INSUFFICIENT_ATOMS")) {
       return fallbackGeneration(targetNodes);
     }
@@ -129,7 +130,7 @@ function fallbackGeneration(nodes: KnowledgeNode[]): StudyItem[] {
   const items: StudyItem[] = [];
   
   nodes.forEach(node => {
-    // Création d'une flashcard basique par atome disponible
+    // Création d'une flashcard basique par atome disponible pour garantir la continuité du service
     node.content_atoms.slice(0, 2).forEach((atom, i) => {
       items.push({
         id: `ige-fallback-${node.id}-${i}-${Date.now()}`,
