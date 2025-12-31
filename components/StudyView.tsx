@@ -43,6 +43,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
       },
       lastReviewedAt: now.toISOString(),
       nextReviewAt: updatedSrsState.nextReviewAt.toISOString(),
+      lastQuality: quality,
     };
     onUpdateItem(updatedItem);
     handleNext();
