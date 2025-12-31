@@ -2,14 +2,13 @@ import {
   KnowledgeGraph, 
   MasteryLayer, 
   UserContext, 
-  PedagogicalDirective,
-  MasteryState
+  PedagogicalDirective
 } from "../types";
 
 /**
  * POE (Pedagogical Orchestration Engine)
  * Fonction PURE : f(Graph, Mastery, Context, Time) -> Directive
- * Détermine la stratégie de la session de manière 100% déterministe.
+ * Détermine la stratégie de la session de manière 100% déterministe basée sur des seuils.
  */
 export function computeDirective(
   graph: KnowledgeGraph,
@@ -18,19 +17,19 @@ export function computeDirective(
   timeAvailableMin: number
 ): PedagogicalDirective {
   
-  // 1. Calcul du volume d'items (maxItems) basé sur le temps
+  // 1. Calcul déterministe du volume d'items basé sur le temps
   let maxItems = 3;
   if (timeAvailableMin >= 45) maxItems = 20;
   else if (timeAvailableMin >= 20) maxItems = 10;
   else if (timeAvailableMin >= 10) maxItems = 5;
   else maxItems = 3;
 
-  // 2. Indexation de la maîtrise pour accès rapide
-  const masteryMap = new Map<string, MasteryState>(
+  // 2. Indexation de la maîtrise
+  const masteryMap = new Map<string, MasteryLayer[number]>(
     mastery.map(m => [m.nodeId, m])
   );
 
-  // 3. Analyse de l'état de maîtrise
+  // 3. Analyse de l'état de maîtrise par seuils
   const criticalStabilityNodes = mastery
     .filter(m => m.stability_index < 40)
     .sort((a, b) => a.stability_index - b.stability_index);
@@ -41,50 +40,56 @@ export function computeDirective(
 
   const highMasteryNodes = mastery.filter(m => m.confidence_score >= 90);
 
-  // 4. Détermination du MODE et de l'INTENSITÉ (Logique Déterministe)
+  // 4. Logique de décision déterministe (Machine à états)
   let mode: PedagogicalDirective['mode'] = 'Review';
   let intensity = 3;
   let rationale = "";
 
-  // Priorité 1 : Récupération ou Sprint Court
-  if (context.sessionType === 'Sprint' || context.sessionType === 'Recovery') {
+  // Priorité 1 : État de fatigue ou besoin de récupération (Input: energyLevel 'low' ou sessionType)
+  if (context.signals?.energyLevel === 'low' || context.sessionType === 'Recovery') {
     mode = 'Review';
-    intensity = context.sessionType === 'Recovery' ? 1 : 2;
-    rationale = `Session de type ${context.sessionType} : priorité au rappel des acquis existants.`;
+    intensity = 1;
+    rationale = "Énergie basse détectée : focus sur le rappel passif pour maintenir la stabilité sans surcharge.";
   } 
-  // Priorité 2 : Lacunes critiques (Remédiation)
+  // Priorité 2 : Temps très court (Input: timeAvailable)
+  else if (timeAvailableMin <= 10) {
+    mode = 'Review';
+    intensity = 2;
+    rationale = "Session flash : priorité aux ancrages mémoriels rapides.";
+  }
+  // Priorité 3 : Lacunes critiques (Input: confidence_score)
   else if (remediationNodes.length > 0) {
     mode = 'Remediation';
     intensity = 3;
-    rationale = "Des lacunes importantes (score < 40) ont été détectées : focus sur la remédiation.";
+    rationale = "Des concepts fondamentaux ne sont pas acquis (score < 40) : remédiation prioritaire.";
   }
-  // Priorité 3 : Travail Profond (Expansion ou Socratique)
+  // Priorité 4 : Travail Profond - Socratique vs Expansion (Seuils croisés Focus + Maîtrise)
   else if (context.sessionType === 'DeepWork' && context.focusScore >= 80) {
-    // Seuil Socratique : Focus élevé ET au moins 3 concepts maîtrisés à fond
+    // SEUIL SOCRATIQUE : Focus optimal ET au moins 3 piliers de savoir maîtrisés
     if (highMasteryNodes.length >= 3) {
       mode = 'Socratic';
       intensity = 5;
-      rationale = "Focus et socle de connaissances élevés : mode socratique activé pour tester la synthèse.";
+      rationale = "Conditions optimales : stimulation socratique pour valider la synthèse complexe.";
     } else {
       mode = 'Expansion';
       intensity = 4;
-      rationale = "Conditions de focus optimales pour l'acquisition de nouveaux concepts.";
+      rationale = "Haute disponibilité cognitive : focus sur l'acquisition de nouveaux nœuds.";
     }
   }
-  // Priorité 4 : Maintenance de la stabilité
+  // Priorité 5 : Maintenance de la rétention
   else if (criticalStabilityNodes.length > 0) {
     mode = 'Review';
     intensity = 3;
-    rationale = "Risque d'oubli détecté (stabilité < 40) : session de maintenance préventive.";
+    rationale = "Risque d'érosion mémorielle détecté : session de stabilisation SRS.";
   }
-  // Fallback : Expansion standard
+  // Fallback par défaut
   else {
     mode = 'Expansion';
     intensity = 3;
-    rationale = "Progression standard dans le graphe de savoir.";
+    rationale = "Progression linéaire standard dans le graphe de savoir.";
   }
 
-  // 5. Sélection des targetNodeIds
+  // 5. Sélection déterministe des nœuds cibles
   let targetNodeIds: string[] = [];
 
   if (mode === 'Review') {
@@ -96,16 +101,13 @@ export function computeDirective(
     targetNodeIds = remediationNodes.slice(0, 2).map(n => n.nodeId);
   }
   else if (mode === 'Expansion') {
-    // Sélectionner des nodes dont les prérequis sont maîtrisés (> 70)
     const candidates = graph.nodes.filter(node => {
       const nodeMastery = masteryMap.get(node.id);
       const isNotMastered = !nodeMastery || nodeMastery.confidence_score < 70;
-      
       const prereqsOk = node.prerequisites.every(pId => {
         const pMastery = masteryMap.get(pId);
         return pMastery && pMastery.confidence_score >= 70;
       });
-
       return isNotMastered && prereqsOk;
     });
 
@@ -114,7 +116,7 @@ export function computeDirective(
     if (targetNodeIds.length === 0) {
       mode = 'Review';
       targetNodeIds = mastery.slice(0, 3).map(n => n.nodeId);
-      rationale = "Expansion impossible (prérequis non validés) : repli sur la révision.";
+      rationale = "Expansion bloquée par les prérequis : repli sur la révision.";
     }
   }
   else if (mode === 'Socratic') {
