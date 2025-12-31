@@ -147,8 +147,11 @@ function fallbackGeneration(graphId: string, nodes: KnowledgeNode[]): StudyItem[
         sm2: { interval: 0, repetitions: 0, efactor: 2.5 },
         lastReviewedAt: null,
         nextReviewAt: null,
-        tags: ['Rappel', node.label]
-      });
+        tags: ['Rappel', node.label],
+        sourceNodeId: node.id,
+        sourceAtoms: [atom],
+        atomCoverage: 1
+      } as any);
     });
   });
   return items;
