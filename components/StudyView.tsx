@@ -1,9 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
-/* Removed non-existent FreeResponse and CaseStudy from imports */
-import type { StudySet, StudyItem, MCQ, TrueFalse, Flashcard, UserContext, UserSignals } from '../types';
+import type { StudySet, StudyItem, MCQ, TrueFalse, UserContext, UserSignals } from '../types';
 import { calculateSm2 } from '../lib/srs';
-import { getFeedbackOnAnswer, Feedback, FollowUpItem } from '../services/geminiService';
+import { Feedback, FollowUpItem } from '../services/geminiService';
 import { CheckIcon, ChatBubbleIcon, TrophyIcon, ClockIcon } from './icons';
 import { ChatPanel } from './ChatPanel';
 
@@ -15,93 +13,28 @@ interface StudyViewProps {
   onAddFollowUpItems: (items: FollowUpItem[], currentIndex: number) => void;
 }
 
-const ContextGateway: React.FC<{ onStart: (signals: UserSignals) => void }> = ({ onStart }) => {
-    const [time, setTime] = useState(10);
-    const [energy, setEnergy] = useState<'low' | 'medium' | 'high'>('medium');
-
-    return (
-        <div className="bg-white p-12 rounded-[40px] shadow-2xl max-w-xl mx-auto border border-slate-100 animate-fade-in-up">
-            <h2 className="text-3xl font-black text-slate-900 mb-4">Prêt pour votre session ?</h2>
-            <p className="text-slate-500 font-medium mb-10 leading-relaxed">
-                L'IA adapte la méthode pédagogique à votre contexte actuel.
-            </p>
-
-            <div className="space-y-8 mb-12">
-                <div>
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4 block">Temps disponible</label>
-                    <div className="flex gap-4">
-                        {[5, 10, 20].map(t => (
-                            <button 
-                                key={t}
-                                onClick={() => setTime(t)}
-                                className={`flex-1 py-4 rounded-2xl font-black border-2 transition-all ${time === t ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}
-                            >
-                                {t} min
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div>
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4 block">Énergie cognitive</label>
-                    <div className="flex gap-4">
-                        {['low', 'medium', 'high'].map(e => (
-                            <button 
-                                key={e}
-                                onClick={() => setEnergy(e as any)}
-                                className={`flex-1 py-4 rounded-2xl font-black border-2 transition-all uppercase text-[10px] tracking-widest ${energy === e ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}
-                            >
-                                {e === 'low' ? 'FATIGUÉ' : e === 'medium' ? 'OK' : 'OPTIMAL'}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            <button 
-                onClick={() => onStart({ timeAvailable: time, energyLevel: energy, stressLevel: 'medium' })}
-                className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all transform hover:scale-[1.02]"
-            >
-                Générer mon parcours adaptatif
-            </button>
-        </div>
-    );
-};
-
 export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUpdateItem, onFinish, onAddFollowUpItems }) => {
-  const [currentIndex, setCurrentIndex] = useState(-1); // -1 is Gateway
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [userAnswer, setUserAnswer] = useState('');
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [isEvaluating, setIsEvaluating] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [sessionResults, setSessionResults] = useState<number[]>([]);
-  const [userContext, setUserContext] = useState<UserContext | null>(null);
 
   const currentItem = useMemo(() => {
       if (currentIndex < 0 || currentIndex >= studyQueue.length) return null;
       return studyQueue[currentIndex];
   }, [studyQueue, currentIndex]);
 
-  // Fix: handleStartSession now correctly includes signals as a known property of UserContext
-  const handleStartSession = (signals: UserSignals) => {
-      // In a real flow, this would call CAE service
-      setUserContext({
-          signals,
-          focusScore: 80,
-          sessionType: 'DeepWork',
-          stateDescription: 'Calibration manuelle'
-      });
-      setCurrentIndex(0);
-  };
-
   const handleNext = () => {
-    setCurrentIndex(prev => prev + 1);
+    if (currentIndex >= studyQueue.length - 1) {
+      setCurrentIndex(studyQueue.length); // End state
+    } else {
+      setCurrentIndex(prev => prev + 1);
+    }
     setShowAnswer(false);
     setSelectedAnswer(null);
     setUserAnswer('');
-    setFeedback(null);
     setIsChatOpen(false);
   };
 
@@ -127,14 +60,6 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
     handleNext();
   };
 
-  if (currentIndex === -1) {
-      return (
-          <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-              <ContextGateway onStart={handleStartSession} />
-          </div>
-      );
-  }
-
   // --- RENDERING CORE ---
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans">
@@ -146,7 +71,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                           <TrophyIcon className="w-16 h-16" />
                       </div>
                       <h2 className="text-4xl font-black text-slate-900 mb-4">Session terminée !</h2>
-                      <p className="text-slate-400 font-medium mb-12">L'IA a mis à jour votre graphe de maîtrise.</p>
+                      <p className="text-slate-400 font-medium mb-12">L'IA a mis à jour votre état de maîtrise pédagogique.</p>
                       <button 
                         onClick={onFinish}
                         className="bg-indigo-600 text-white font-black py-4 px-10 rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
@@ -165,8 +90,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                         </div>
                         <div className="flex items-center gap-2 text-slate-400 font-bold text-sm">
                             <ClockIcon className="w-4 h-4" /> 
-                            {/* Fix: signals property is now recognized on UserContext type */}
-                            {userContext?.signals?.timeAvailable} min restantes
+                            Session Orchestrée
                         </div>
                     </div>
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -175,7 +99,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                 </div>
 
                 <div className="flex-grow flex flex-col items-center justify-center max-w-3xl mx-auto w-full">
-                    <div className="bg-slate-50 p-10 rounded-[40px] w-full text-center border border-slate-100 mb-8">
+                    <div className="bg-slate-50 p-10 rounded-[40px] w-full text-center border border-slate-100 mb-8 shadow-inner">
                         <p className="text-2xl md:text-3xl font-black text-slate-900 leading-tight">{currentItem.question}</p>
                     </div>
 
@@ -183,8 +107,8 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                         {showAnswer ? (
                             <div className="space-y-6 animate-fade-in">
                                 <div className="bg-emerald-50 border border-emerald-100 p-8 rounded-3xl relative">
-                                    <h4 className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-3">Réponse IA</h4>
-                                    <p className="text-lg text-emerald-900 font-medium">{(currentItem as any).answer || (currentItem as MCQ).options?.[(currentItem as MCQ).correctAnswerIndex]}</p>
+                                    <h4 className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-3">Réponse de Référence</h4>
+                                    <p className="text-lg text-emerald-900 font-medium">{(currentItem as any).answer || (currentItem as MCQ).options?.[(currentItem as MCQ).correctAnswerIndex || 0]}</p>
                                     <button 
                                         onClick={() => setIsChatOpen(true)}
                                         className="absolute top-6 right-6 p-3 bg-white text-emerald-600 rounded-xl shadow-sm hover:shadow-md transition-all"
@@ -204,7 +128,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                                     <button 
                                         key={i}
                                         onClick={() => { setSelectedAnswer(i); setShowAnswer(true); }}
-                                        className="w-full p-6 text-left border-2 border-slate-100 rounded-2xl hover:border-indigo-600 hover:bg-indigo-50 transition-all group"
+                                        className="w-full p-6 text-left border-2 border-slate-100 rounded-2xl hover:border-indigo-600 hover:bg-indigo-50 transition-all group bg-white shadow-sm"
                                     >
                                         <div className="flex items-center gap-4">
                                             <span className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center font-black text-xs transition-colors">
@@ -214,13 +138,13 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
                                         </div>
                                     </button>
                                 ))}
-                                {(currentItem.type === 'flashcard' || currentItem.type === 'free' || currentItem.type === 'case') && (
+                                {(currentItem.type === 'flashcard' || currentItem.type === 'free' || currentItem.type === 'case' || currentItem.type === 'true/false') && (
                                     <div className="space-y-4">
                                         <textarea 
                                             value={userAnswer}
                                             onChange={e => setUserAnswer(e.target.value)}
-                                            className="w-full h-40 p-6 border-2 border-slate-100 rounded-3xl focus:border-indigo-600 focus:outline-none font-medium text-slate-800"
-                                            placeholder="Tapez votre réponse ici pour analyse..."
+                                            className="w-full h-40 p-6 border-2 border-slate-100 rounded-3xl focus:border-indigo-600 focus:outline-none font-medium text-slate-800 shadow-inner"
+                                            placeholder="Tapez votre réponse pour valider l'atome de savoir..."
                                         />
                                         <button 
                                             onClick={() => setShowAnswer(true)}

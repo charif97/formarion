@@ -1,24 +1,51 @@
-
-import React, { useState } from 'react';
-import { AppState, UserRole, KnowledgeGraph, UserContext, UserSignals } from './types';
+import React, { useState, useEffect } from 'react';
+import { 
+  AppState, 
+  UserRole, 
+  KnowledgeGraph, 
+  UserContext, 
+  UserSignals, 
+  MasteryLayer, 
+  StudyItem,
+  StudySet
+} from './types';
 import { DashboardView } from './components/DashboardView';
 import { ImportView } from './components/ImportView';
 import { GraphValidationView } from './components/GraphValidationView';
 import { LandingView } from './components/LandingView';
 import { LoginView } from './components/LoginView';
 import { ContextGateway } from './components/ContextGateway';
+import { StudyView } from './components/StudyView';
 import { Toast } from './components/Toast';
 import { generateKnowledgeGraph } from './services/geminiService';
-import { calibrateSession, CaeInsight } from './services/caeService';
+import { calibrateSession } from './services/caeService';
+import { computeDirective } from './services/poeService';
+import { generateStudyItems } from './services/igeService';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
   const [currentRole, setCurrentRole] = useState<UserRole>(UserRole.Collaborator);
   const [activeGraph, setActiveGraph] = useState<KnowledgeGraph | null>(null);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
-  const [caeInsight, setCaeInsight] = useState<CaeInsight | null>(null);
+  const [mastery, setMastery] = useState<MasteryLayer>([]);
+  const [currentSessionItems, setCurrentSessionItems] = useState<StudyItem[]>([]);
+  
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
+
+  // Initialisation de la maîtrise lors de la validation du graphe
+  useEffect(() => {
+    if (activeGraph && mastery.length === 0) {
+      const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
+        nodeId: node.id,
+        confidence_score: 0,
+        stability_index: 0,
+        last_interaction_at: null
+      }));
+      setMastery(initialMastery);
+    }
+  }, [activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ id: Date.now(), message, type });
@@ -32,25 +59,53 @@ const App: React.FC = () => {
 
   const handleStartStudy = () => setAppState(AppState.Study);
 
-  // Fix: changed parameter type to UserSignals and updated state management
+  /**
+   * ORCHESTRATION COMPLETE : CAE -> POE -> IGE
+   */
   const handleCaeStart = async (signals: UserSignals) => {
+    if (!activeGraph) {
+      showToast("Veuillez d'abord importer un document", "error");
+      setAppState(AppState.Import);
+      return;
+    }
+
     setIsLoading(true);
+    setLoadingMessage("Analyse de votre contexte de disponibilité...");
+    
     try {
-      const insight = await calibrateSession(signals);
-      setUserContext(insight);
-      setCaeInsight(insight);
-      showToast(`Mode ${insight.sessionType} activé. Focus: ${insight.focusScore}%`);
-      // Note: POE n'étant pas implémenté, on retourne au dashboard ou on simule la suite
-      setAppState(AppState.Dashboard);
+      // 1. CAE : Qualification de l'état
+      const context = await calibrateSession(signals);
+      setUserContext(context);
+      
+      setLoadingMessage("POE : Calcul de la stratégie pédagogique...");
+      // 2. POE : Détermination de la directive (Fonction Pure)
+      const directive = computeDirective(
+        activeGraph, 
+        mastery, 
+        context, 
+        signals.timeAvailable
+      );
+
+      setLoadingMessage(`IGE : Génération des items (${directive.mode})...`);
+      // 3. IGE : Génération des items dynamiques
+      const items = await generateStudyItems(activeGraph, directive);
+      
+      setCurrentSessionItems(items);
+      showToast(`${items.length} items générés pour votre session ${context.sessionType}.`);
+      setAppState(AppState.Study);
     } catch (e) {
-      showToast("Erreur de calibration", "error");
+      console.error(e);
+      showToast("Erreur lors de la préparation de la session", "error");
+      setAppState(AppState.Dashboard);
     } finally {
       setIsLoading(false);
+      setLoadingMessage("");
     }
   };
 
   const handleGenerateGraph = async (text: string, title: string) => {
     setIsLoading(true);
+    setLoadingMessage("Digestion du contenu et création du graphe...");
     setAppState(AppState.GeneratingGraph);
     try {
       const graph = await generateKnowledgeGraph(text, title);
@@ -61,15 +116,23 @@ const App: React.FC = () => {
       setAppState(AppState.Import);
     } finally {
       setIsLoading(false);
+      setLoadingMessage("");
     }
   };
 
+  const handleUpdateItem = (updatedItem: StudyItem) => {
+    // Dans un MVP, on mettrait à jour la MasteryLayer ici
+    // Pour l'instant on se contente de mettre à jour la liste locale
+    setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+  };
+
   const renderContent = () => {
-    if (appState === AppState.GeneratingGraph) {
+    if (isLoading && appState !== AppState.Study) {
       return (
-        <div className="flex flex-col items-center justify-center h-screen text-center p-8 bg-slate-50">
+        <div className="flex flex-col items-center justify-center h-screen text-center p-8 bg-slate-50 animate-fade-in">
           <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-8"></div>
-          <h2 className="text-2xl font-black text-slate-800 mb-2">Digestion par l'IA</h2>
+          <h2 className="text-2xl font-black text-slate-800 mb-2">{loadingMessage || "Chargement..."}</h2>
+          <p className="text-slate-400 font-medium">L'IA de Jungle travaille pour vous.</p>
         </div>
       );
     }
@@ -87,9 +150,28 @@ const App: React.FC = () => {
           level={1} currentXp={0} xpForNextLevel={100} mastery={0} 
         />
       );
-      case AppState.Import: return <ImportView title="Ingestion" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
+      case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
       case AppState.GraphValidation: return activeGraph ? <GraphValidationView graph={activeGraph} onConfirm={() => setAppState(AppState.Dashboard)} onCancel={() => setAppState(AppState.Import)} /> : null;
-      case AppState.Study: return <ContextGateway onStart={handleCaeStart} onCancel={() => setAppState(AppState.Dashboard)} />;
+      case AppState.Study: 
+        if (currentSessionItems.length > 0) {
+          const mockSet: StudySet = {
+            id: 'session-live',
+            title: activeGraph?.title || 'Session Active',
+            items: currentSessionItems,
+            createdAt: new Date().toISOString(),
+            sourceText: activeGraph?.source_text
+          };
+          return (
+            <StudyView 
+              studySet={mockSet} 
+              studyQueue={currentSessionItems} 
+              onUpdateItem={handleUpdateItem}
+              onFinish={() => setAppState(AppState.Dashboard)}
+              onAddFollowUpItems={() => {}}
+            />
+          );
+        }
+        return <ContextGateway onStart={handleCaeStart} onCancel={() => setAppState(AppState.Dashboard)} />;
       default: return <LandingView onGetStarted={() => setAppState(AppState.Login)} />;
     }
   };
