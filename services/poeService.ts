@@ -49,7 +49,7 @@ export function computeDirective(
   if (context.signals?.energyLevel === 'low' || context.sessionType === 'Recovery') {
     mode = 'Review';
     intensity = 1;
-    rationale = "Énergie basse détectée : focus sur le rappel passif pour maintenir la stabilité sans surcharge cognitive.";
+    rationale = "Énergie basse ou besoin de récupération détecté : focus sur le rappel passif pour maintenir la stabilité sans surcharge cognitive.";
   } 
   // Priorité 2 : Temps très court (Input: timeAvailable <= 10)
   else if (timeAvailableMin <= 10) {
@@ -61,15 +61,15 @@ export function computeDirective(
   else if (remediationNodes.length > 0) {
     mode = 'Remediation';
     intensity = 3;
-    rationale = "Des concepts fondamentaux ne sont pas acquis (score < 40) : focus sur la remédiation et le scaffolding.";
+    rationale = "Des concepts fondamentaux ne sont pas acquis (score < 40) : focus sur la remédiation prioritaire.";
   }
-  // Priorité 4 : Travail Profond - Socratique vs Expansion (Seuils : Focus >= 80% ET session DeepWork)
+  // Priorité 4 : Travail Profond - Socratique vs Expansion (Input: sessionType 'DeepWork' && focusScore >= 80)
   else if (context.sessionType === 'DeepWork' && context.focusScore >= 80) {
-    // SEUIL SOCRATIQUE : Focus optimal ET au moins 3 piliers de savoir maîtrisés (score >= 90)
+    // SEUIL SOCRATIQUE DÉTERMINISTE : Focus optimal ET au moins 3 piliers de savoir maîtrisés (score >= 90)
     if (highMasteryNodes.length >= 3) {
       mode = 'Socratic';
       intensity = 5;
-      rationale = "Conditions de focus et socle de connaissances optimaux : stimulation socratique pour valider la synthèse complexe.";
+      rationale = "Focus et socle de connaissances optimaux : activation du mode socratique pour tester la synthèse complexe.";
     } else {
       mode = 'Expansion';
       intensity = 4;
@@ -116,14 +116,14 @@ export function computeDirective(
     if (targetNodeIds.length === 0) {
       mode = 'Review';
       targetNodeIds = mastery.slice(0, 3).map(n => n.nodeId);
-      rationale = "Expansion bloquée (prérequis non validés) : repli sur la révision des acquis.";
+      rationale = "Expansion impossible (prérequis non validés) : repli déterministe sur la révision.";
     }
   }
   else if (mode === 'Socratic') {
     targetNodeIds = highMasteryNodes.slice(0, 1).map(m => m.nodeId);
   }
 
-  // Sécurité finale : Toujours renvoyer au moins un nœud
+  // Sécurité finale : Toujours renvoyer au moins un nœud si le graphe n'est pas vide
   if (targetNodeIds.length === 0 && graph.nodes.length > 0) {
     targetNodeIds = [graph.nodes[0].id];
   }
