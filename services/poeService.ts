@@ -8,7 +8,7 @@ import {
 /**
  * POE (Pedagogical Orchestration Engine)
  * Fonction PURE : f(Graph, Mastery, Context, Time) -> Directive
- * Détermine la stratégie de la session de manière 100% déterministe basée sur des seuils stricts.
+ * Détermine la stratégie de la session de manière 100% déterministe.
  */
 export function computeDirective(
   graph: KnowledgeGraph,
@@ -17,19 +17,19 @@ export function computeDirective(
   timeAvailableMin: number
 ): PedagogicalDirective {
   
-  // 1. Calcul déterministe du volume d'items basé sur le temps
+  // 1. Calcul du volume d'items (maxItems) basé sur le temps
   let maxItems = 3;
   if (timeAvailableMin >= 45) maxItems = 20;
   else if (timeAvailableMin >= 20) maxItems = 10;
   else if (timeAvailableMin >= 10) maxItems = 5;
   else maxItems = 3;
 
-  // 2. Indexation de la maîtrise pour accès rapide (O(1))
+  // 2. Indexation de la maîtrise pour accès rapide
   const masteryMap = new Map<string, MasteryLayer[number]>(
     mastery.map(m => [m.nodeId, m])
   );
 
-  // 3. Analyse de l'état de maîtrise par segments (Seuils)
+  // 3. Analyse de l'état de maîtrise par segments
   const criticalStabilityNodes = mastery
     .filter(m => m.stability_index < 40)
     .sort((a, b) => a.stability_index - b.stability_index);
@@ -40,56 +40,50 @@ export function computeDirective(
 
   const highMasteryNodes = mastery.filter(m => m.confidence_score >= 90);
 
-  // 4. Logique de décision déterministe (Machine à états)
+  // 4. Détermination du MODE et de l'INTENSITÉ (Logique Déterministe)
   let mode: PedagogicalDirective['mode'] = 'Review';
   let intensity = 3;
   let rationale = "";
 
-  // Priorité 1 : État de fatigue ou besoin de récupération (Input: energyLevel 'low' ou sessionType Recovery)
-  if (context.signals?.energyLevel === 'low' || context.sessionType === 'Recovery') {
+  // Priorité 1 : Récupération ou Sprint Court (basé sur le type de session)
+  if (context.sessionType === 'Sprint' || context.sessionType === 'Recovery') {
     mode = 'Review';
-    intensity = 1;
-    rationale = "Énergie basse ou besoin de récupération détecté : focus sur le rappel passif pour maintenir la stabilité sans surcharge cognitive.";
+    intensity = context.sessionType === 'Recovery' ? 1 : 2;
+    rationale = `Session de type ${context.sessionType} : priorité au rappel des acquis existants.`;
   } 
-  // Priorité 2 : Temps très court (Input: timeAvailable <= 10)
-  else if (timeAvailableMin <= 10) {
-    mode = 'Review';
-    intensity = 2;
-    rationale = "Session flash : priorité aux ancrages mémoriels rapides pour une rétention efficace en temps limité.";
-  }
-  // Priorité 3 : Lacunes critiques (Input: confidence_score < 40)
+  // Priorité 2 : Lacunes critiques (Remédiation basée sur confidence_score < 40)
   else if (remediationNodes.length > 0) {
     mode = 'Remediation';
     intensity = 3;
-    rationale = "Des concepts fondamentaux ne sont pas acquis (score < 40) : focus sur la remédiation prioritaire.";
+    rationale = "Des lacunes importantes (score < 40) ont été détectées : focus sur la remédiation.";
   }
-  // Priorité 4 : Travail Profond - Socratique vs Expansion (Input: sessionType 'DeepWork' && focusScore >= 80)
+  // Priorité 3 : Travail Profond (Socratique vs Expansion basé sur focusScore et highMasteryNodes)
   else if (context.sessionType === 'DeepWork' && context.focusScore >= 80) {
-    // SEUIL SOCRATIQUE DÉTERMINISTE : Focus optimal ET au moins 3 piliers de savoir maîtrisés (score >= 90)
+    // Remplacement de la condition non-déterministe par une règle stricte sur les inputs
     if (highMasteryNodes.length >= 3) {
       mode = 'Socratic';
       intensity = 5;
-      rationale = "Focus et socle de connaissances optimaux : activation du mode socratique pour tester la synthèse complexe.";
+      rationale = "Focus et socle de connaissances élevés : mode socratique activé pour tester la synthèse.";
     } else {
       mode = 'Expansion';
       intensity = 4;
-      rationale = "Haute disponibilité cognitive : focus sur l'acquisition de nouveaux nœuds de savoir adjacents.";
+      rationale = "Conditions de focus optimales pour l'acquisition de nouveaux concepts.";
     }
   }
-  // Priorité 5 : Maintenance de la rétention (Input: stability_index < 40)
+  // Priorité 4 : Maintenance de la stabilité (basée sur stability_index < 40)
   else if (criticalStabilityNodes.length > 0) {
     mode = 'Review';
     intensity = 3;
-    rationale = "Risque d'érosion mémorielle détecté (stabilité basse) : session de stabilisation via SRS.";
+    rationale = "Risque d'oubli détecté (stabilité < 40) : session de maintenance préventive.";
   }
-  // Fallback par défaut : Expansion progressive
+  // Fallback : Expansion standard
   else {
     mode = 'Expansion';
     intensity = 3;
-    rationale = "Progression linéaire standard dans le graphe de savoir.";
+    rationale = "Progression standard dans le graphe de savoir.";
   }
 
-  // 5. Sélection déterministe des nœuds cibles
+  // 5. Sélection déterministe des targetNodeIds
   let targetNodeIds: string[] = [];
 
   if (mode === 'Review') {
@@ -104,10 +98,12 @@ export function computeDirective(
     const candidates = graph.nodes.filter(node => {
       const nodeMastery = masteryMap.get(node.id);
       const isNotMastered = !nodeMastery || nodeMastery.confidence_score < 70;
+      
       const prereqsOk = node.prerequisites.every(pId => {
         const pMastery = masteryMap.get(pId);
         return pMastery && pMastery.confidence_score >= 70;
       });
+
       return isNotMastered && prereqsOk;
     });
 
@@ -116,14 +112,14 @@ export function computeDirective(
     if (targetNodeIds.length === 0) {
       mode = 'Review';
       targetNodeIds = mastery.slice(0, 3).map(n => n.nodeId);
-      rationale = "Expansion impossible (prérequis non validés) : repli déterministe sur la révision.";
+      rationale = "Expansion impossible (prérequis non validés) : repli sur la révision.";
     }
   }
   else if (mode === 'Socratic') {
     targetNodeIds = highMasteryNodes.slice(0, 1).map(m => m.nodeId);
   }
 
-  // Sécurité finale : Toujours renvoyer au moins un nœud si le graphe n'est pas vide
+  // Sécurité finale : toujours retourner au moins un noeud
   if (targetNodeIds.length === 0 && graph.nodes.length > 0) {
     targetNodeIds = [graph.nodes[0].id];
   }
