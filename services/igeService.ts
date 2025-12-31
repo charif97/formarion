@@ -140,7 +140,7 @@ function fallbackGeneration(graphId: string, nodes: KnowledgeNode[]): StudyItem[
       items.push({
         id: `ige-${graphId}-${node.id}-fallback-${idx}`,
         type: 'flashcard',
-        question: `Rappel sur "${node.label}"`,
+        question: `Rappel sur "${node.label}" : comment est défini ce concept ?`,
         answer: atom,
         explanation: `Source : ${node.label}`,
         difficulty: node.difficulty_weight,
