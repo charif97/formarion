@@ -77,9 +77,6 @@ const igeResponseSchema = {
   required: ['status', 'items']
 };
 
-/**
- * Génère des items d'étude de manière déterministe.
- */
 export async function generateStudyItems(
   graph: KnowledgeGraph,
   directive: PedagogicalDirective
@@ -115,13 +112,13 @@ export async function generateStudyItems(
       },
     });
 
-    const data = JSON.parse(response.text);
+    const text = response.text || "{}";
+    const data = JSON.parse(text);
 
     if (data.status === 'INSUFFICIENT_ATOMS' || !data.items || data.items.length === 0) {
       return fallbackGeneration(graph.id, targetNodes);
     }
 
-    // Normalisation et Déterminisme des IDs
     return data.items.map((item: any, idx: number) => ({
       ...item,
       id: `ige-${graph.id}-${item.sourceNodeId || 'unknown'}-${idx}`,
@@ -136,29 +133,23 @@ export async function generateStudyItems(
   }
 }
 
-/**
- * Fallback déterministe garantissant zéro hallucination.
- * Utilise les atomes exacts comme réponses pour des flashcards.
- */
 function fallbackGeneration(graphId: string, nodes: KnowledgeNode[]): StudyItem[] {
   const items: StudyItem[] = [];
-  
   nodes.forEach(node => {
     node.content_atoms.slice(0, 2).forEach((atom, idx) => {
       items.push({
         id: `ige-${graphId}-${node.id}-fallback-${idx}`,
         type: 'flashcard',
-        question: `Rappel concernant "${node.label}" : comment est défini ce concept ?`,
-        answer: atom, // "answer doit être EXACTEMENT l'atome"
+        question: `Rappel sur "${node.label}"`,
+        answer: atom,
         explanation: `Source : ${node.label}`,
         difficulty: node.difficulty_weight,
         sm2: { interval: 0, repetitions: 0, efactor: 2.5 },
         lastReviewedAt: null,
         nextReviewAt: null,
-        tags: ['Fallback', node.label]
+        tags: ['Rappel', node.label]
       });
     });
   });
-
   return items;
 }

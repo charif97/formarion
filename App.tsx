@@ -34,7 +34,6 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Initialisation de la maîtrise lors de la validation du graphe
   useEffect(() => {
     if (activeGraph && mastery.length === 0) {
       const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
@@ -59,9 +58,6 @@ const App: React.FC = () => {
 
   const handleStartStudy = () => setAppState(AppState.Study);
 
-  /**
-   * ORCHESTRATION COMPLETE : CAE -> POE -> IGE
-   */
   const handleCaeStart = async (signals: UserSignals) => {
     if (!activeGraph) {
       showToast("Veuillez d'abord importer un document", "error");
@@ -70,15 +66,13 @@ const App: React.FC = () => {
     }
 
     setIsLoading(true);
-    setLoadingMessage("Analyse de votre contexte de disponibilité...");
+    setLoadingMessage("Analyse du contexte...");
     
     try {
-      // 1. CAE : Qualification de l'état
       const context = await calibrateSession(signals);
       setUserContext(context);
       
-      setLoadingMessage("POE : Calcul de la stratégie pédagogique...");
-      // 2. POE : Détermination de la directive (Fonction Pure)
+      setLoadingMessage("Calcul de la stratégie...");
       const directive = computeDirective(
         activeGraph, 
         mastery, 
@@ -86,16 +80,15 @@ const App: React.FC = () => {
         signals.timeAvailable
       );
 
-      setLoadingMessage(`IGE : Génération des items (${directive.mode})...`);
-      // 3. IGE : Génération des items dynamiques
+      setLoadingMessage(`Génération des items...`);
       const items = await generateStudyItems(activeGraph, directive);
       
       setCurrentSessionItems(items);
-      showToast(`${items.length} items générés pour votre session ${context.sessionType}.`);
+      showToast(`${items.length} items générés.`);
       setAppState(AppState.Study);
     } catch (e) {
       console.error(e);
-      showToast("Erreur lors de la préparation de la session", "error");
+      showToast("Erreur de préparation", "error");
       setAppState(AppState.Dashboard);
     } finally {
       setIsLoading(false);
@@ -105,7 +98,7 @@ const App: React.FC = () => {
 
   const handleGenerateGraph = async (text: string, title: string) => {
     setIsLoading(true);
-    setLoadingMessage("Digestion du contenu et création du graphe...");
+    setLoadingMessage("Création du graphe de savoir...");
     setAppState(AppState.GeneratingGraph);
     try {
       const graph = await generateKnowledgeGraph(text, title);
@@ -121,8 +114,6 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
-    // Dans un MVP, on mettrait à jour la MasteryLayer ici
-    // Pour l'instant on se contente de mettre à jour la liste locale
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
   };
 
@@ -132,7 +123,7 @@ const App: React.FC = () => {
         <div className="flex flex-col items-center justify-center h-screen text-center p-8 bg-slate-50 animate-fade-in">
           <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-8"></div>
           <h2 className="text-2xl font-black text-slate-800 mb-2">{loadingMessage || "Chargement..."}</h2>
-          <p className="text-slate-400 font-medium">L'IA de Jungle travaille pour vous.</p>
+          <p className="text-slate-400 font-medium">L'IA du projet travaille pour vous.</p>
         </div>
       );
     }
@@ -167,7 +158,6 @@ const App: React.FC = () => {
               studyQueue={currentSessionItems} 
               onUpdateItem={handleUpdateItem}
               onFinish={() => setAppState(AppState.Dashboard)}
-              onAddFollowUpItems={() => {}}
             />
           );
         }
