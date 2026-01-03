@@ -35,12 +35,25 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Calcul de la maîtrise globale pour le Dashboard
-  const overallMastery = useMemo(() => {
-    if (mastery.length === 0) return 0;
+  // Calcul de la maîtrise globale pour le Dashboard (Objectif 3)
+  const { overallMastery } = useMemo(() => {
+    if (mastery.length === 0) {
+      return { overallMastery: 0, masteryCount: 0, masteredCount: 0 };
+    }
     const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
     const avg = sum / mastery.length;
-    return Math.min(100, Math.max(0, Math.round(avg)));
+    const rounded = Math.round(avg);
+    const clamped = Math.max(0, Math.min(100, rounded));
+    
+    // masteryCount et masteredCount calculés mais non passés au DashboardView (pas de props correspondantes)
+    const masteryCount = mastery.length;
+    const masteredCount = mastery.filter(m => m.confidence_score >= 70).length;
+
+    return {
+      overallMastery: clamped,
+      masteryCount,
+      masteredCount
+    };
   }, [mastery]);
 
   // Persistence: LOAD MasteryLayer avec Normalisation
