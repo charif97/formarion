@@ -80,7 +80,11 @@ const App: React.FC = () => {
   // Persistence Mastery: SAVE
   useEffect(() => {
     if (!activeGraph || mastery.length === 0) return;
-    localStorage.setItem(`masteryLayer:${activeGraph.id}`, JSON.stringify(mastery));
+    try {
+      localStorage.setItem(`masteryLayer:${activeGraph.id}`, JSON.stringify(mastery));
+    } catch (e) {
+      console.warn("Storage warning: Could not save mastery layer", e);
+    }
   }, [mastery, activeGraph]);
 
   // Persistence StudyItems: LOAD
@@ -106,7 +110,11 @@ const App: React.FC = () => {
   // Persistence StudyItems: SAVE
   useEffect(() => {
     if (!activeGraph) return;
-    localStorage.setItem(`studyItems:${activeGraph.id}`, JSON.stringify(storedStudyItems));
+    try {
+      localStorage.setItem(`studyItems:${activeGraph.id}`, JSON.stringify(storedStudyItems));
+    } catch (e) {
+      console.warn("Storage warning: Could not save study items", e);
+    }
   }, [storedStudyItems, activeGraph]);
 
   // Persistence Gamification: LOAD
@@ -135,10 +143,14 @@ const App: React.FC = () => {
   // Persistence Gamification: SAVE
   useEffect(() => {
     if (!activeGraph) return;
-    localStorage.setItem(`progress:${activeGraph.id}`, JSON.stringify({ 
-      level: progress.level, 
-      currentXp: progress.currentXp 
-    }));
+    try {
+      localStorage.setItem(`progress:${activeGraph.id}`, JSON.stringify({ 
+        level: progress.level, 
+        currentXp: progress.currentXp 
+      }));
+    } catch (e) {
+      console.warn("Storage warning: Could not save progress", e);
+    }
   }, [progress.level, progress.currentXp, activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -192,14 +204,15 @@ const App: React.FC = () => {
       setLoadingMessage(`Génération des items...`);
       const newItems = await generateStudyItems(activeGraph, directive);
       
-      // Merge with stored items: avoid duplicates, keep most advanced SRS state
+      // Merge with stored items: avoid duplicates, keep existing progress
       setStoredStudyItems(prev => {
         const merged = [...prev];
         newItems.forEach(ni => {
           const existingIdx = merged.findIndex(m => m.id === ni.id);
           if (existingIdx !== -1) {
-            // If existing has progress, keep it. If not, take new.
-            if (!merged[existingIdx].lastReviewedAt && ni.lastReviewedAt) {
+            // Rule: If already reviewed, keep existing (SRS state). 
+            // If not, take new (fresher generation).
+            if (!merged[existingIdx].lastReviewedAt) {
               merged[existingIdx] = ni;
             }
           } else {
@@ -242,8 +255,16 @@ const App: React.FC = () => {
     // 1. Sync active session queue
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // 2. Sync global storage
-    setStoredStudyItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+    // 2. Sync global storage (Robust update/insert)
+    setStoredStudyItems(prev => {
+      const idx = prev.findIndex(item => item.id === updatedItem.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = updatedItem;
+        return next;
+      }
+      return [...prev, updatedItem];
+    });
 
     // 3. Update Mastery
     let nodeId = updatedItem.sourceNodeId;
