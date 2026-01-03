@@ -83,7 +83,7 @@ const App: React.FC = () => {
     try {
       localStorage.setItem(`masteryLayer:${activeGraph.id}`, JSON.stringify(mastery));
     } catch (e) {
-      console.warn("Storage warning: Could not save mastery layer", e);
+      console.error("Quota exceeded or localStorage disabled: Mastery Layer not saved.", e);
     }
   }, [mastery, activeGraph]);
 
@@ -113,7 +113,7 @@ const App: React.FC = () => {
     try {
       localStorage.setItem(`studyItems:${activeGraph.id}`, JSON.stringify(storedStudyItems));
     } catch (e) {
-      console.warn("Storage warning: Could not save study items", e);
+      console.error("Quota exceeded or localStorage disabled: Study Items not saved.", e);
     }
   }, [storedStudyItems, activeGraph]);
 
@@ -149,7 +149,7 @@ const App: React.FC = () => {
         currentXp: progress.currentXp 
       }));
     } catch (e) {
-      console.warn("Storage warning: Could not save progress", e);
+      console.error("Quota exceeded or localStorage disabled: Progress not saved.", e);
     }
   }, [progress.level, progress.currentXp, activeGraph]);
 
@@ -204,16 +204,16 @@ const App: React.FC = () => {
       setLoadingMessage(`Génération des items...`);
       const newItems = await generateStudyItems(activeGraph, directive);
       
-      // Merge with stored items: avoid duplicates, keep existing progress
+      // FIX MERGE LOGIC: Keep progress for reviewed items, replace fresh ones
       setStoredStudyItems(prev => {
         const merged = [...prev];
         newItems.forEach(ni => {
-          const existingIdx = merged.findIndex(m => m.id === ni.id);
-          if (existingIdx !== -1) {
-            // Rule: If already reviewed, keep existing (SRS state). 
-            // If not, take new (fresher generation).
-            if (!merged[existingIdx].lastReviewedAt) {
-              merged[existingIdx] = ni;
+          const idx = merged.findIndex(m => m.id === ni.id);
+          if (idx !== -1) {
+            // Rule: If item already has progress (lastReviewedAt), keep it.
+            // Otherwise, we take the new one.
+            if (!merged[idx].lastReviewedAt) {
+              merged[idx] = ni;
             }
           } else {
             merged.push(ni);
