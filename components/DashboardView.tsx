@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React from 'react';
 import { UserRole, Class, StudySet } from '../types';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-    PieChart, Pie, Cell, Legend, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+    Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
-import { CheckIcon, BellIcon, UserGroupIcon, LightBulbIcon, ClockIcon, BookOpenIcon, ChevronDownIcon } from './icons';
+import { CheckIcon, LightBulbIcon, ClockIcon, BookOpenIcon } from './icons';
 
 interface DashboardProps {
   classes: Class[];
@@ -18,30 +18,15 @@ interface DashboardProps {
   role: UserRole;
   // Statistiques réelles
   dueCount: number;
+  dueOnlyCount: number;
+  newCount: number;
   totalItems: number;
-  newCount?: number;
   masteredNodes: number;
   totalNodes: number;
 }
 
-const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-const StatCard: React.FC<{ title: string; value: string | number; subtext?: string; color?: string; icon?: React.ReactNode }> = ({ title, value, subtext, color = "text-slate-800", icon }) => (
-    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-full hover:shadow-md transition-shadow">
-        <div>
-            <div className="flex justify-between items-start mb-2">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{title}</p>
-                {icon && <div className="text-slate-300">{icon}</div>}
-            </div>
-            <p className={`text-3xl font-black ${color}`}>{value}</p>
-        </div>
-        {subtext && <p className="text-xs text-slate-400 mt-2 font-medium">{subtext}</p>}
-    </div>
-);
-
-// --- 1. COLLABORATOR VIEW: KNOWLEDGE MAP FOCUS ---
 const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
-    const { onStartDailyReview, level, currentXp, xpForNextLevel, mastery, dueCount, totalItems, newCount, masteredNodes, totalNodes } = props;
+    const { onStartDailyReview, level, currentXp, xpForNextLevel, mastery, dueCount, dueOnlyCount, newCount, totalItems, masteredNodes, totalNodes } = props;
 
     const masteryData = [
         { subject: 'Conformité', mastery: 85 },
@@ -53,8 +38,9 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Real Stats Widgets Section */}
+            {/* Real Stats Widgets Section (MVP) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                
                 {/* Revision Widget */}
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
                     <div>
@@ -62,9 +48,11 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                             <span className="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Révision</span>
                             <ClockIcon className="w-5 h-5 text-rose-200" />
                         </div>
-                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Aujourd'hui</h4>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">À réviser aujourd'hui</h4>
                         <p className="text-4xl font-black text-slate-900">{dueCount}</p>
-                        <p className="text-xs text-slate-400 font-medium mt-1">items prêts à réviser</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">
+                          {dueOnlyCount} dus • {newCount} nouveaux
+                        </p>
                     </div>
                     <button 
                         onClick={onStartDailyReview}
@@ -75,26 +63,8 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50'
                         }`}
                     >
-                        {dueCount > 0 ? "Réviser maintenant" : "Tout est à jour"}
+                        {dueCount > 0 ? "Commencer la révision" : "Tout est à jour"}
                     </button>
-                </div>
-
-                {/* Mastery Widget */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
-                    <div>
-                        <div className="flex justify-between items-start mb-4">
-                            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Savoir</span>
-                            <CheckIcon className="w-5 h-5 text-emerald-200" />
-                        </div>
-                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Maîtrisés</h4>
-                        <p className="text-4xl font-black text-slate-900">{masteredNodes}</p>
-                        <p className="text-xs text-slate-400 font-medium mt-1">sur {totalNodes} concepts totaux</p>
-                    </div>
-                    <div className="mt-6">
-                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${totalNodes > 0 ? (masteredNodes/totalNodes)*100 : 0}%` }}></div>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Items Widget */}
@@ -106,7 +76,7 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                         </div>
                         <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Items Totaux</h4>
                         <p className="text-4xl font-black text-slate-900">{totalItems}</p>
-                        <p className="text-xs text-slate-400 font-medium mt-1">{newCount} nouveaux items</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">Générés par l'IA</p>
                     </div>
                     <button 
                         onClick={props.onNewSet}
@@ -116,16 +86,34 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     </button>
                 </div>
 
+                {/* Mastery Widget */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Maîtrise</span>
+                            <CheckIcon className="w-5 h-5 text-emerald-200" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Concepts acquis</h4>
+                        <p className="text-4xl font-black text-slate-900">{masteredNodes}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">sur {totalNodes} concepts identifiés</p>
+                    </div>
+                    <div className="mt-6">
+                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${totalNodes > 0 ? (masteredNodes/totalNodes)*100 : 0}%` }}></div>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Global Performance Widget */}
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
                     <div>
                         <div className="flex justify-between items-start mb-4">
-                            <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Score IA</span>
+                            <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Performance</span>
                             <LightBulbIcon className="w-5 h-5 text-amber-200" />
                         </div>
-                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Global</h4>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Maîtrise globale</h4>
                         <p className="text-4xl font-black text-slate-900">{mastery}%</p>
-                        <p className="text-xs text-slate-400 font-medium mt-1">indice de mémorisation</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">Score de rétention moyen</p>
                     </div>
                     <div className="mt-6">
                          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -140,8 +128,8 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                 <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
                     <div className="flex justify-between items-center mb-8">
                         <div>
-                            <h3 className="text-xl font-black text-slate-800">Graphe de Maîtrise</h3>
-                            <p className="text-sm text-slate-400 font-medium">Visualisation de vos compétences acquises</p>
+                            <h3 className="text-xl font-black text-slate-800">Profil de Compétences</h3>
+                            <p className="text-sm text-slate-400 font-medium">Visualisation de vos domaines de connaissances</p>
                         </div>
                         <span className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">
                             Niveau {level}
@@ -168,15 +156,15 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     </div>
                 </div>
 
-                {/* Next Step / Context Prompt */}
+                {/* Progression & XP */}
                 <div className="flex flex-col gap-6">
                     <div className="bg-indigo-600 p-8 rounded-3xl text-white shadow-xl shadow-indigo-100 flex flex-col justify-between flex-grow">
                         <div>
-                            <h4 className="text-2xl font-black mb-2">Prêt pour l'étape suivante ?</h4>
+                            <h4 className="text-2xl font-black mb-2">Continuez à apprendre</h4>
                             <p className="text-indigo-100 text-sm font-medium leading-relaxed">
                                 {dueCount > 0 
-                                  ? `L'IA a détecté ${dueCount} items qui nécessitent votre attention immédiate pour éviter l'oubli.`
-                                  : "Votre mémoire est au top ! L'IA suggère d'explorer de nouveaux concepts ou d'importer un document."
+                                  ? `Vous avez ${dueCount} items qui attendent votre attention. La répétition espacée est la clé du succès.`
+                                  : "Votre mémoire est parfaitement à jour ! C'est le moment idéal pour explorer de nouveaux concepts."
                                 }
                             </p>
                         </div>
@@ -184,12 +172,12 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                             onClick={dueCount > 0 ? onStartDailyReview : props.onNewSet}
                             className="mt-8 bg-white text-indigo-600 font-black py-4 px-6 rounded-2xl hover:bg-indigo-50 transition-all transform hover:scale-[1.02] shadow-lg"
                         >
-                            {dueCount > 0 ? "Démarrer la session" : "Importer du contenu"}
+                            {dueCount > 0 ? "Reprendre l'étude" : "Nouvelle importation"}
                         </button>
                     </div>
 
                     <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Progression XP</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Barre de progression XP</p>
                         <div className="flex items-end justify-between mb-2">
                             <span className="text-2xl font-black text-slate-800">{currentXp}</span>
                             <span className="text-sm font-bold text-slate-400">/{xpForNextLevel} XP</span>
@@ -200,38 +188,11 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     </div>
                 </div>
             </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <StatCard title="Maîtrise Globale" value={`${mastery}%`} color="text-emerald-600" />
-                <StatCard title="Série Actuelle" value="12 Jours" color="text-amber-500" icon="🔥" />
-                <StatCard title="Certifications" value="3" color="text-indigo-600" />
-                <StatCard title="Temps d'étude" value="14h" subtext="Ce mois-ci" />
-            </div>
         </div>
     );
 };
 
-// --- 2. MANAGER VIEW: DECISION SUPPORT FOCUS ---
-const ManagerDashboard: React.FC<DashboardProps> = ({ classes }) => {
-    const decisions = [
-        {
-            id: 1,
-            title: "Renforcement LCB-FT",
-            evidence: "30% de l'équipe Rabat Agdal stagne sur le concept 'Bénéficiaire Effectif'.",
-            action: "Assigner le module de remédiation (Scaffolding)",
-            type: "risk",
-            count: 4
-        },
-        {
-            id: 2,
-            title: "Opportunité Soft Skills",
-            evidence: "Sarah L. a validé 100% du socle théorique avec un score excellent.",
-            action: "Valider le passage en mode Socratique / Approfondissement",
-            type: "opportunity",
-            count: 1
-        }
-    ];
-
+const ManagerDashboard: React.FC<DashboardProps> = () => {
     const teamPerf = [
         { name: 'Rabat Agdal', mastery: 72 },
         { name: 'Casablanca Anfa', mastery: 85 },
@@ -240,31 +201,23 @@ const ManagerDashboard: React.FC<DashboardProps> = ({ classes }) => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Decision Flux */}
             <section>
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <LightBulbIcon className="w-4 h-4" /> Flux de décisions proactif
+                    <LightBulbIcon className="w-4 h-4" /> Analyse prédictive IA
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {decisions.map(d => (
-                        <div key={d.id} className={`p-6 rounded-3xl border ${d.type === 'risk' ? 'bg-rose-50 border-rose-100' : 'bg-indigo-50 border-indigo-100'} shadow-sm flex flex-col justify-between`}>
-                            <div>
-                                <div className="flex justify-between items-start mb-4">
-                                    <h4 className={`font-black text-lg ${d.type === 'risk' ? 'text-rose-900' : 'text-indigo-900'}`}>{d.title}</h4>
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${d.type === 'risk' ? 'bg-rose-200 text-rose-700' : 'bg-indigo-200 text-indigo-700'}`}>
-                                        {d.type === 'risk' ? 'ALERTE RISQUE' : 'OPPORTUNITÉ'}
-                                    </span>
-                                </div>
-                                <p className="text-sm text-slate-600 font-medium leading-relaxed mb-6">
-                                    <span className="font-bold opacity-50 block mb-1">PREUVE IA :</span>
-                                    {d.evidence}
-                                </p>
-                            </div>
-                            <button className={`w-full py-4 px-6 rounded-2xl font-black text-sm transition-all shadow-md transform hover:scale-[1.01] ${d.type === 'risk' ? 'bg-rose-600 text-white hover:bg-rose-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
-                                {d.action} ({d.count} pers.)
-                            </button>
-                        </div>
-                    ))}
+                    <div className="p-6 rounded-3xl border bg-rose-50 border-rose-100 shadow-sm">
+                        <h4 className="font-black text-rose-900 mb-2">Risque de conformité</h4>
+                        <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                          L'équipe Tanger Centre présente une chute de rétention de 15% sur le module RGPD. Une session de rappel est suggérée.
+                        </p>
+                    </div>
+                    <div className="p-6 rounded-3xl border bg-indigo-50 border-indigo-100 shadow-sm">
+                        <h4 className="font-black text-indigo-900 mb-2">Opportunité de formation</h4>
+                        <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                          Casablanca Anfa a complété 90% du socle commun. Ils sont prêts pour le module avancé "Crédit Immobilier".
+                        </p>
+                    </div>
                 </div>
             </section>
 
@@ -296,7 +249,7 @@ const ManagerDashboard: React.FC<DashboardProps> = ({ classes }) => {
                         {[
                             { name: 'LCB-FT', val: 92, status: 'OK' },
                             { name: 'RGPD', val: 78, status: 'WARM' },
-                            { name: 'Code Éthique', val: 100, status: 'OK' },
+                            { name: 'Éthique', val: 100, status: 'OK' },
                         ].map((item, i) => (
                             <div key={i}>
                                 <div className="flex justify-between text-xs font-black uppercase tracking-widest text-slate-400 mb-2">

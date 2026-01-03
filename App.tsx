@@ -45,27 +45,35 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Calcul des statistiques pour le Dashboard
+  // Calcul des statistiques réelles pour le Dashboard (MVP)
   const dashboardStats = useMemo(() => {
     const now = Date.now();
-    const dueCount = storedStudyItems.filter(item => 
+    
+    // Items dus (date de révision passée)
+    const dueOnlyCount = storedStudyItems.filter(item => 
       item.nextReviewAt && new Date(item.nextReviewAt).getTime() <= now
     ).length;
-    const totalItems = storedStudyItems.length;
+
+    // Nouveaux items (jamais revus)
     const newCount = storedStudyItems.filter(item => !item.lastReviewedAt).length;
+
+    // File de révision totale (Dus + Nouveaux)
+    const dueCount = dueOnlyCount + newCount;
     
+    const totalItems = storedStudyItems.length;
     const masteredNodes = mastery.filter(m => m.confidence_score >= 70).length;
     const totalNodes = mastery.length;
 
-    // Calcul de la maîtrise globale (déjà existant mais on le regroupe ou on le garde séparé)
+    // Maîtrise globale moyenne
     const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
     const avg = totalNodes > 0 ? sum / totalNodes : 0;
     const overallMastery = Math.max(0, Math.min(100, Math.round(avg)));
 
     return { 
       dueCount, 
-      totalItems, 
+      dueOnlyCount,
       newCount, 
+      totalItems, 
       masteredNodes, 
       totalNodes,
       overallMastery 
@@ -338,8 +346,9 @@ const App: React.FC = () => {
           xpForNextLevel={progress.xpForNextLevel} 
           mastery={dashboardStats.overallMastery}
           dueCount={dashboardStats.dueCount}
-          totalItems={dashboardStats.totalItems}
+          dueOnlyCount={dashboardStats.dueOnlyCount}
           newCount={dashboardStats.newCount}
+          totalItems={dashboardStats.totalItems}
           masteredNodes={dashboardStats.masteredNodes}
           totalNodes={dashboardStats.totalNodes}
         />
