@@ -45,22 +45,32 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Calcul de la maîtrise globale pour le Dashboard
-  const { overallMastery } = useMemo(() => {
-    if (mastery.length === 0) {
-      return { overallMastery: 0, masteryCount: 0, masteredCount: 0 };
-    }
-    const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
-    const avg = sum / mastery.length;
-    const rounded = Math.round(avg);
-    const clamped = Math.max(0, Math.min(100, rounded));
+  // Calcul des statistiques pour le Dashboard
+  const dashboardStats = useMemo(() => {
+    const now = Date.now();
+    const dueCount = storedStudyItems.filter(item => 
+      item.nextReviewAt && new Date(item.nextReviewAt).getTime() <= now
+    ).length;
+    const totalItems = storedStudyItems.length;
+    const newCount = storedStudyItems.filter(item => !item.lastReviewedAt).length;
     
-    return {
-      overallMastery: clamped,
-      masteryCount: mastery.length,
-      masteredCount: mastery.filter(m => m.confidence_score >= 70).length
+    const masteredNodes = mastery.filter(m => m.confidence_score >= 70).length;
+    const totalNodes = mastery.length;
+
+    // Calcul de la maîtrise globale (déjà existant mais on le regroupe ou on le garde séparé)
+    const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
+    const avg = totalNodes > 0 ? sum / totalNodes : 0;
+    const overallMastery = Math.max(0, Math.min(100, Math.round(avg)));
+
+    return { 
+      dueCount, 
+      totalItems, 
+      newCount, 
+      masteredNodes, 
+      totalNodes,
+      overallMastery 
     };
-  }, [mastery]);
+  }, [storedStudyItems, mastery]);
 
   // Persistence Mastery: LOAD
   useEffect(() => {
@@ -326,7 +336,12 @@ const App: React.FC = () => {
           level={progress.level} 
           currentXp={progress.currentXp} 
           xpForNextLevel={progress.xpForNextLevel} 
-          mastery={overallMastery} 
+          mastery={dashboardStats.overallMastery}
+          dueCount={dashboardStats.dueCount}
+          totalItems={dashboardStats.totalItems}
+          newCount={dashboardStats.newCount}
+          masteredNodes={dashboardStats.masteredNodes}
+          totalNodes={dashboardStats.totalNodes}
         />
       );
       case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;

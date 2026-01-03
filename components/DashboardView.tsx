@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { UserRole, Class, StudySet } from '../types';
 import { 
@@ -17,6 +16,12 @@ interface DashboardProps {
   xpForNextLevel: number;
   mastery: number;
   role: UserRole;
+  // Statistiques réelles
+  dueCount: number;
+  totalItems: number;
+  newCount?: number;
+  masteredNodes: number;
+  totalNodes: number;
 }
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -35,7 +40,9 @@ const StatCard: React.FC<{ title: string; value: string | number; subtext?: stri
 );
 
 // --- 1. COLLABORATOR VIEW: KNOWLEDGE MAP FOCUS ---
-const CollaboratorDashboard: React.FC<DashboardProps> = ({ onStartDailyReview, level, currentXp, xpForNextLevel, mastery }) => {
+const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
+    const { onStartDailyReview, level, currentXp, xpForNextLevel, mastery, dueCount, totalItems, newCount, masteredNodes, totalNodes } = props;
+
     const masteryData = [
         { subject: 'Conformité', mastery: 85 },
         { subject: 'Crédit', mastery: 45 },
@@ -46,6 +53,88 @@ const CollaboratorDashboard: React.FC<DashboardProps> = ({ onStartDailyReview, l
 
     return (
         <div className="space-y-8 animate-fade-in">
+            {/* Real Stats Widgets Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Revision Widget */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Révision</span>
+                            <ClockIcon className="w-5 h-5 text-rose-200" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Aujourd'hui</h4>
+                        <p className="text-4xl font-black text-slate-900">{dueCount}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">items prêts à réviser</p>
+                    </div>
+                    <button 
+                        onClick={onStartDailyReview}
+                        disabled={dueCount === 0}
+                        className={`mt-6 w-full py-3 rounded-2xl font-black text-sm transition-all shadow-sm ${
+                            dueCount > 0 
+                            ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-100 transform hover:scale-[1.02]' 
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50'
+                        }`}
+                    >
+                        {dueCount > 0 ? "Réviser maintenant" : "Tout est à jour"}
+                    </button>
+                </div>
+
+                {/* Mastery Widget */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Savoir</span>
+                            <CheckIcon className="w-5 h-5 text-emerald-200" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Maîtrisés</h4>
+                        <p className="text-4xl font-black text-slate-900">{masteredNodes}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">sur {totalNodes} concepts totaux</p>
+                    </div>
+                    <div className="mt-6">
+                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${totalNodes > 0 ? (masteredNodes/totalNodes)*100 : 0}%` }}></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Items Widget */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Contenu</span>
+                            <BookOpenIcon className="w-5 h-5 text-indigo-200" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Items Totaux</h4>
+                        <p className="text-4xl font-black text-slate-900">{totalItems}</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">{newCount} nouveaux items</p>
+                    </div>
+                    <button 
+                        onClick={props.onNewSet}
+                        className="mt-6 w-full py-3 bg-indigo-50 text-indigo-600 rounded-2xl font-black text-sm transition-all hover:bg-indigo-100"
+                    >
+                        Importer plus
+                    </button>
+                </div>
+
+                {/* Global Performance Widget */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                    <div>
+                        <div className="flex justify-between items-start mb-4">
+                            <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Score IA</span>
+                            <LightBulbIcon className="w-5 h-5 text-amber-200" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Global</h4>
+                        <p className="text-4xl font-black text-slate-900">{mastery}%</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">indice de mémorisation</p>
+                    </div>
+                    <div className="mt-6">
+                         <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${mastery}%` }}></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Knowledge Graph Card */}
                 <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
@@ -85,14 +174,17 @@ const CollaboratorDashboard: React.FC<DashboardProps> = ({ onStartDailyReview, l
                         <div>
                             <h4 className="text-2xl font-black mb-2">Prêt pour l'étape suivante ?</h4>
                             <p className="text-indigo-100 text-sm font-medium leading-relaxed">
-                                L'IA a préparé une session de révision de 8 minutes sur la Conformité LCB-FT.
+                                {dueCount > 0 
+                                  ? `L'IA a détecté ${dueCount} items qui nécessitent votre attention immédiate pour éviter l'oubli.`
+                                  : "Votre mémoire est au top ! L'IA suggère d'explorer de nouveaux concepts ou d'importer un document."
+                                }
                             </p>
                         </div>
                         <button 
-                            onClick={onStartDailyReview}
+                            onClick={dueCount > 0 ? onStartDailyReview : props.onNewSet}
                             className="mt-8 bg-white text-indigo-600 font-black py-4 px-6 rounded-2xl hover:bg-indigo-50 transition-all transform hover:scale-[1.02] shadow-lg"
                         >
-                            Démarrer la session
+                            {dueCount > 0 ? "Démarrer la session" : "Importer du contenu"}
                         </button>
                     </div>
 
