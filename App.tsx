@@ -23,6 +23,7 @@ import { computeDirective } from './services/poeService';
 import { generateStudyItems } from './services/igeService';
 import { normalizeMasteryLayer } from './lib/mastery';
 import { xpForLevel, awardXp, applyXp } from './lib/xp';
+import { buildDailyReviewQueue } from './lib/review';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -30,12 +31,15 @@ const App: React.FC = () => {
   const [activeGraph, setActiveGraph] = useState<KnowledgeGraph | null>(null);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
   const [mastery, setMastery] = useState<MasteryLayer>([]);
+  const [storedStudyItems, setStoredStudyItems] = useState<StudyItem[]>([]);
   const [currentSessionItems, setCurrentSessionItems] = useState<StudyItem[]>([]);
   
   // Gamification state
-  const [level, setLevel] = useState(1);
-  const [currentXp, setCurrentXp] = useState(0);
-  const [xpForNextLevel, setXpForNextLevel] = useState(xpForLevel(1));
+  const [progress, setProgress] = useState({ 
+    level: 1, 
+    currentXp: 0, 
+    xpForNextLevel: xpForLevel(1) 
+  });
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
@@ -51,58 +55,64 @@ const App: React.FC = () => {
     const rounded = Math.round(avg);
     const clamped = Math.max(0, Math.min(100, rounded));
     
-    const masteryCount = mastery.length;
-    const masteredCount = mastery.filter(m => m.confidence_score >= 70).length;
-
     return {
       overallMastery: clamped,
-      masteryCount,
-      masteredCount
+      masteryCount: mastery.length,
+      masteredCount: mastery.filter(m => m.confidence_score >= 70).length
     };
   }, [mastery]);
 
-  // Persistence Mastery: LOAD avec Normalisation
+  // Persistence Mastery: LOAD
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
       return;
     }
-
     const storageKey = `masteryLayer:${activeGraph.id}`;
     const storedData = localStorage.getItem(storageKey);
     let parsed: MasteryLayer | null = null;
-
     if (storedData) {
-      try {
-        parsed = JSON.parse(storedData);
-      } catch (e) {
-        console.error("Erreur fatale lors du parsing de la MasteryLayer:", e);
-        localStorage.removeItem(storageKey);
-      }
+      try { parsed = JSON.parse(storedData); } catch (e) { localStorage.removeItem(storageKey); }
     }
-
-    const normalizedMastery = normalizeMasteryLayer(activeGraph.nodes, parsed);
-    setMastery(normalizedMastery);
+    setMastery(normalizeMasteryLayer(activeGraph.nodes, parsed));
   }, [activeGraph]);
 
   // Persistence Mastery: SAVE
   useEffect(() => {
     if (!activeGraph || mastery.length === 0) return;
-    
-    const storageKey = `masteryLayer:${activeGraph.id}`;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(mastery));
-    } catch (e) {
-      console.error("Échec de persistance LocalStorage (MasteryLayer):", e);
-    }
+    localStorage.setItem(`masteryLayer:${activeGraph.id}`, JSON.stringify(mastery));
   }, [mastery, activeGraph]);
 
-  // Persistence Gamification: LOAD (déclenchée sur activeGraph)
+  // Persistence StudyItems: LOAD
   useEffect(() => {
     if (!activeGraph) {
-      setLevel(1);
-      setCurrentXp(0);
-      setXpForNextLevel(xpForLevel(1));
+      setStoredStudyItems([]);
+      return;
+    }
+    const storageKey = `studyItems:${activeGraph.id}`;
+    const storedData = localStorage.getItem(storageKey);
+    if (storedData) {
+      try {
+        setStoredStudyItems(JSON.parse(storedData));
+      } catch (e) {
+        localStorage.removeItem(storageKey);
+        setStoredStudyItems([]);
+      }
+    } else {
+      setStoredStudyItems([]);
+    }
+  }, [activeGraph]);
+
+  // Persistence StudyItems: SAVE
+  useEffect(() => {
+    if (!activeGraph) return;
+    localStorage.setItem(`studyItems:${activeGraph.id}`, JSON.stringify(storedStudyItems));
+  }, [storedStudyItems, activeGraph]);
+
+  // Persistence Gamification: LOAD
+  useEffect(() => {
+    if (!activeGraph) {
+      setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
       return;
     }
     const storageKey = `progress:${activeGraph.id}`;
@@ -110,32 +120,26 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const { level: l, currentXp: x } = JSON.parse(saved);
-        const validatedLevel = Math.max(1, l || 1);
-        const validatedXp = Math.max(0, x || 0);
-        setLevel(validatedLevel);
-        setCurrentXp(validatedXp);
-        setXpForNextLevel(xpForLevel(validatedLevel));
+        const vL = Math.max(1, l || 1);
+        const vX = Math.max(0, x || 0);
+        setProgress({ level: vL, currentXp: vX, xpForNextLevel: xpForLevel(vL) });
       } catch (e) {
-        console.error("Échec du chargement de la progression:", e);
         localStorage.removeItem(storageKey);
+        setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
       }
     } else {
-      setLevel(1);
-      setCurrentXp(0);
-      setXpForNextLevel(xpForLevel(1));
+      setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
     }
   }, [activeGraph]);
 
-  // Persistence Gamification: SAVE (sur [level, currentXp, activeGraph])
+  // Persistence Gamification: SAVE
   useEffect(() => {
     if (!activeGraph) return;
-    const storageKey = `progress:${activeGraph.id}`;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ level, currentXp }));
-    } catch (e) {
-      console.error("Échec de sauvegarde de la progression:", e);
-    }
-  }, [level, currentXp, activeGraph]);
+    localStorage.setItem(`progress:${activeGraph.id}`, JSON.stringify({ 
+      level: progress.level, 
+      currentXp: progress.currentXp 
+    }));
+  }, [progress.level, progress.currentXp, activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ id: Date.now(), message, type });
@@ -147,7 +151,27 @@ const App: React.FC = () => {
     showToast(`Connecté en tant que ${role}`);
   };
 
-  const handleStartStudy = () => setAppState(AppState.Study);
+  const handleStartDailyReview = () => {
+    if (!activeGraph) {
+      showToast("Veuillez d'abord importer un document", "error");
+      setAppState(AppState.Import);
+      return;
+    }
+
+    if (storedStudyItems.length === 0) {
+      showToast("Pas encore d'items à réviser. Lancez une première session personnalisée.", "error");
+      return;
+    }
+
+    const queue = buildDailyReviewQueue(storedStudyItems, new Date(), 10);
+    if (queue.length === 0) {
+      showToast("Tous vos items sont à jour ! Revenez plus tard ou lancez une session d'expansion.", "success");
+      return;
+    }
+
+    setCurrentSessionItems(queue);
+    setAppState(AppState.Study);
+  };
 
   const handleCaeStart = async (signals: UserSignals) => {
     if (!activeGraph) {
@@ -158,29 +182,39 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setLoadingMessage("Analyse du contexte...");
-    
     try {
       const context = await calibrateSession(signals);
       setUserContext(context);
       
       setLoadingMessage("Calcul de la stratégie...");
-      const directive = computeDirective(
-        activeGraph, 
-        mastery, 
-        context, 
-        signals.timeAvailable
-      );
+      const directive = computeDirective(activeGraph, mastery, context, signals.timeAvailable);
 
       setLoadingMessage(`Génération des items...`);
-      const items = await generateStudyItems(activeGraph, directive);
+      const newItems = await generateStudyItems(activeGraph, directive);
       
-      setCurrentSessionItems(items);
-      showToast(`${items.length} items générés.`);
+      // Merge with stored items: avoid duplicates, keep most advanced SRS state
+      setStoredStudyItems(prev => {
+        const merged = [...prev];
+        newItems.forEach(ni => {
+          const existingIdx = merged.findIndex(m => m.id === ni.id);
+          if (existingIdx !== -1) {
+            // If existing has progress, keep it. If not, take new.
+            if (!merged[existingIdx].lastReviewedAt && ni.lastReviewedAt) {
+              merged[existingIdx] = ni;
+            }
+          } else {
+            merged.push(ni);
+          }
+        });
+        return merged;
+      });
+
+      setCurrentSessionItems(newItems);
+      showToast(`${newItems.length} items préparés.`);
       setAppState(AppState.Study);
     } catch (e) {
       console.error(e);
       showToast("Erreur de préparation", "error");
-      setAppState(AppState.Dashboard);
     } finally {
       setIsLoading(false);
       setLoadingMessage("");
@@ -205,57 +239,45 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
+    // 1. Sync active session queue
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // A) Récupération robuste du nodeId
+    // 2. Sync global storage
+    setStoredStudyItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+
+    // 3. Update Mastery
     let nodeId = updatedItem.sourceNodeId;
-    if (!nodeId) {
-      if (!activeGraph) return; 
+    if (!nodeId && activeGraph) {
       if (updatedItem.id.startsWith('ige-')) {
-        const graphId = activeGraph.id;
-        const prefix = `ige-${graphId}-`;
+        const prefix = `ige-${activeGraph.id}-`;
         if (updatedItem.id.startsWith(prefix)) {
-          const remaining = updatedItem.id.substring(prefix.length);
-          nodeId = remaining.split('-')[0];
+          nodeId = updatedItem.id.substring(prefix.length).split('-')[0];
         }
       }
     }
 
     const quality = updatedItem.lastQuality;
+    if (nodeId && typeof quality === 'number') {
+      setMastery(prev => prev.map(m => {
+        if (m.nodeId !== nodeId) return m;
+        let confAdj = quality >= 4 ? 10 : (quality <= 2 ? -10 : 0);
+        const newConf = Math.max(0, Math.min(100, m.confidence_score + confAdj));
+        const interval = updatedItem.sm2.interval || 0;
+        const newStabCalc = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
+        const smoothedStab = Math.round(0.7 * m.stability_index + 0.3 * newStabCalc);
+        return {
+          ...m,
+          confidence_score: newConf,
+          stability_index: smoothedStab,
+          last_interaction_at: new Date().toISOString()
+        };
+      }));
 
-    // C) Vérification stricte des entrées
-    if (!nodeId || typeof quality !== 'number') return;
-
-    // Mise à jour de la maîtrise
-    setMastery(prev => prev.map(m => {
-      if (m.nodeId !== nodeId) return m;
-
-      let confidenceAdj = 0;
-      if (quality >= 4) confidenceAdj = 10;
-      else if (quality <= 2) confidenceAdj = -10;
-      
-      const newConfidence = Math.max(0, Math.min(100, m.confidence_score + confidenceAdj));
-      
-      // B) Mise à jour stabilité avec lissage (0.7 / 0.3)
-      const interval = updatedItem.sm2.interval || 0;
-      const newStabilityCalculated = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
-      const smoothedStability = Math.round(0.7 * m.stability_index + 0.3 * newStabilityCalculated);
-
-      return {
-        ...m,
-        confidence_score: newConfidence,
-        stability_index: smoothedStability,
-        last_interaction_at: new Date().toISOString()
-      };
-    }));
-
-    // Gamification update
-    const gainedGxp = awardXp(quality);
-    if (gainedGxp > 0) {
-      const nextProg = applyXp(level, currentXp, gainedGxp);
-      setLevel(nextProg.level);
-      setCurrentXp(nextProg.currentXp);
-      setXpForNextLevel(nextProg.xpForNextLevel);
+      // 4. Update XP
+      const gainedXp = awardXp(quality);
+      if (gainedXp > 0) {
+        setProgress(prev => applyXp(prev.level, prev.currentXp, gainedXp));
+      }
     }
   };
 
@@ -265,7 +287,7 @@ const App: React.FC = () => {
         <div className="flex flex-col items-center justify-center h-screen text-center p-8 bg-slate-50 animate-fade-in">
           <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-8"></div>
           <h2 className="text-2xl font-black text-slate-800 mb-2">{loadingMessage || "Chargement..."}</h2>
-          <p className="text-slate-400 font-medium">L'IA du projet travaille pour vous.</p>
+          <p className="text-slate-400 font-medium">L'intelligence artificielle prépare vos ressources.</p>
         </div>
       );
     }
@@ -279,10 +301,10 @@ const App: React.FC = () => {
           classes={[]} 
           onNewSet={() => setAppState(AppState.Import)} 
           onStartStudySet={() => {}} 
-          onStartDailyReview={handleStartStudy} 
-          level={level} 
-          currentXp={currentXp} 
-          xpForNextLevel={xpForNextLevel} 
+          onStartDailyReview={handleStartDailyReview} 
+          level={progress.level} 
+          currentXp={progress.currentXp} 
+          xpForNextLevel={progress.xpForNextLevel} 
           mastery={overallMastery} 
         />
       );
