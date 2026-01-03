@@ -33,7 +33,12 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
   const handleSrsRating = (quality: number) => {
     if (!currentItem) return;
     const now = new Date();
+    
+    // Calcul de l'état SRS suivant via SM-2
     const updatedSrsState = calculateSm2(currentItem.sm2, quality, now);
+    
+    // On propage l'intégralité de currentItem (dont sourceNodeId, sourceAtoms, atomCoverage)
+    // On patche uniquement les métadonnées de progression
     const updatedItem: StudyItem = {
       ...currentItem,
       sm2: {
@@ -45,6 +50,7 @@ export const StudyView: React.FC<StudyViewProps> = ({ studySet, studyQueue, onUp
       nextReviewAt: updatedSrsState.nextReviewAt.toISOString(),
       lastQuality: quality,
     };
+    
     onUpdateItem(updatedItem);
     handleNext();
   };
