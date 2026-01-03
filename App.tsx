@@ -45,29 +45,59 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Calcul des statistiques réelles pour le Dashboard (MVP)
+  // Mappage des labels des nœuds pour le Dashboard
+  const nodeLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    activeGraph?.nodes.forEach(node => {
+      map[node.id] = node.label;
+    });
+    return map;
+  }, [activeGraph]);
+
+  // Calcul des statistiques réelles pour le Dashboard
   const dashboardStats = useMemo(() => {
     const now = Date.now();
+    const todayStr = new Date().toISOString().split('T')[0];
     
-    // Items dus (date de révision passée)
+    // Items dus
     const dueOnlyCount = storedStudyItems.filter(item => 
       item.nextReviewAt && new Date(item.nextReviewAt).getTime() <= now
     ).length;
 
-    // Nouveaux items (jamais revus)
+    // Nouveaux items
     const newCount = storedStudyItems.filter(item => !item.lastReviewedAt).length;
 
-    // File de révision totale (Dus + Nouveaux)
+    // File de révision totale
     const dueCount = dueOnlyCount + newCount;
-    
     const totalItems = storedStudyItems.length;
+    
+    // Maîtrise
     const masteredNodes = mastery.filter(m => m.confidence_score >= 70).length;
     const totalNodes = mastery.length;
-
-    // Maîtrise globale moyenne
     const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
     const avg = totalNodes > 0 ? sum / totalNodes : 0;
     const overallMastery = Math.max(0, Math.min(100, Math.round(avg)));
+
+    // Calcul de la série (Streak)
+    const reviewDates = new Set(
+      storedStudyItems
+        .filter(i => i.lastReviewedAt)
+        .map(i => new Date(i.lastReviewedAt!).toISOString().split('T')[0])
+    );
+    
+    let streakCount = 0;
+    if (reviewDates.size > 0) {
+      const checkDate = new Date();
+      // Si pas de révision aujourd'hui, on vérifie à partir d'hier
+      if (!reviewDates.has(todayStr)) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+      
+      while (reviewDates.has(checkDate.toISOString().split('T')[0])) {
+        streakCount++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+    }
 
     return { 
       dueCount, 
@@ -76,7 +106,8 @@ const App: React.FC = () => {
       totalItems, 
       masteredNodes, 
       totalNodes,
-      overallMastery 
+      overallMastery,
+      streak: streakCount
     };
   }, [storedStudyItems, mastery]);
 
@@ -222,14 +253,11 @@ const App: React.FC = () => {
       setLoadingMessage(`Génération des items...`);
       const newItems = await generateStudyItems(activeGraph, directive);
       
-      // FIX MERGE LOGIC: Keep progress for reviewed items, replace fresh ones
       setStoredStudyItems(prev => {
         const merged = [...prev];
         newItems.forEach(ni => {
           const idx = merged.findIndex(m => m.id === ni.id);
           if (idx !== -1) {
-            // Rule: If item already has progress (lastReviewedAt), keep it.
-            // Otherwise, we take the new one.
             if (!merged[idx].lastReviewedAt) {
               merged[idx] = ni;
             }
@@ -270,10 +298,8 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
-    // 1. Sync active session queue
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // 2. Sync global storage (Robust update/insert)
     setStoredStudyItems(prev => {
       const idx = prev.findIndex(item => item.id === updatedItem.id);
       if (idx !== -1) {
@@ -284,7 +310,6 @@ const App: React.FC = () => {
       return [...prev, updatedItem];
     });
 
-    // 3. Update Mastery
     let nodeId = updatedItem.sourceNodeId;
     if (!nodeId && activeGraph) {
       if (updatedItem.id.startsWith('ige-')) {
@@ -312,7 +337,6 @@ const App: React.FC = () => {
         };
       }));
 
-      // 4. Update XP
       const gainedXp = awardXp(quality);
       if (gainedXp > 0) {
         setProgress(prev => applyXp(prev.level, prev.currentXp, gainedXp));
@@ -351,6 +375,9 @@ const App: React.FC = () => {
           totalItems={dashboardStats.totalItems}
           masteredNodes={dashboardStats.masteredNodes}
           totalNodes={dashboardStats.totalNodes}
+          streak={dashboardStats.streak}
+          masteryLayer={mastery}
+          nodeLabels={nodeLabels}
         />
       );
       case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
