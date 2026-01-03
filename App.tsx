@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Calcul de la maîtrise globale pour le Dashboard (Objectif 3)
+  // Calcul de la maîtrise globale pour le Dashboard
   const { overallMastery } = useMemo(() => {
     if (mastery.length === 0) {
       return { overallMastery: 0, masteryCount: 0, masteredCount: 0 };
@@ -51,7 +51,6 @@ const App: React.FC = () => {
     const rounded = Math.round(avg);
     const clamped = Math.max(0, Math.min(100, rounded));
     
-    // masteryCount et masteredCount calculés mais non passés au DashboardView (pas de props correspondantes)
     const masteryCount = mastery.length;
     const masteredCount = mastery.filter(m => m.confidence_score >= 70).length;
 
@@ -62,7 +61,7 @@ const App: React.FC = () => {
     };
   }, [mastery]);
 
-  // Persistence: LOAD MasteryLayer avec Normalisation
+  // Persistence Mastery: LOAD avec Normalisation
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
@@ -82,12 +81,11 @@ const App: React.FC = () => {
       }
     }
 
-    // Normalisation déterministe alignée sur les nœuds du graphe actif
     const normalizedMastery = normalizeMasteryLayer(activeGraph.nodes, parsed);
     setMastery(normalizedMastery);
   }, [activeGraph]);
 
-  // Persistence: SAVE MasteryLayer
+  // Persistence Mastery: SAVE
   useEffect(() => {
     if (!activeGraph || mastery.length === 0) return;
     
@@ -99,11 +97,16 @@ const App: React.FC = () => {
     }
   }, [mastery, activeGraph]);
 
-  // Persistence Gamification: LOAD
+  // Persistence Gamification: LOAD (déclenchée sur activeGraph)
   useEffect(() => {
-    if (!activeGraph) return;
-    const key = `progress:${activeGraph.id}`;
-    const saved = localStorage.getItem(key);
+    if (!activeGraph) {
+      setLevel(1);
+      setCurrentXp(0);
+      setXpForNextLevel(xpForLevel(1));
+      return;
+    }
+    const storageKey = `progress:${activeGraph.id}`;
+    const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
         const { level: l, currentXp: x } = JSON.parse(saved);
@@ -114,21 +117,21 @@ const App: React.FC = () => {
         setXpForNextLevel(xpForLevel(validatedLevel));
       } catch (e) {
         console.error("Échec du chargement de la progression:", e);
+        localStorage.removeItem(storageKey);
       }
     } else {
-      // Initialisation si aucune donnée
       setLevel(1);
       setCurrentXp(0);
       setXpForNextLevel(xpForLevel(1));
     }
   }, [activeGraph]);
 
-  // Persistence Gamification: SAVE
+  // Persistence Gamification: SAVE (sur [level, currentXp, activeGraph])
   useEffect(() => {
     if (!activeGraph) return;
-    const key = `progress:${activeGraph.id}`;
+    const storageKey = `progress:${activeGraph.id}`;
     try {
-      localStorage.setItem(key, JSON.stringify({ level, currentXp }));
+      localStorage.setItem(storageKey, JSON.stringify({ level, currentXp }));
     } catch (e) {
       console.error("Échec de sauvegarde de la progression:", e);
     }
@@ -207,7 +210,7 @@ const App: React.FC = () => {
     // A) Récupération robuste du nodeId
     let nodeId = updatedItem.sourceNodeId;
     if (!nodeId) {
-      if (!activeGraph) return; // Si activeGraph null -> ne rien faire.
+      if (!activeGraph) return; 
       if (updatedItem.id.startsWith('ige-')) {
         const graphId = activeGraph.id;
         const prefix = `ige-${graphId}-`;
@@ -247,12 +250,12 @@ const App: React.FC = () => {
     }));
 
     // Gamification update
-    const gained = awardXp(quality);
-    if (gained > 0) {
-      const nextProgression = applyXp(level, currentXp, gained);
-      setLevel(nextProgression.level);
-      setCurrentXp(nextProgression.currentXp);
-      setXpForNextLevel(nextProgression.xpForNextLevel);
+    const gainedGxp = awardXp(quality);
+    if (gainedGxp > 0) {
+      const nextProg = applyXp(level, currentXp, gainedGxp);
+      setLevel(nextProg.level);
+      setCurrentXp(nextProg.currentXp);
+      setXpForNextLevel(nextProg.xpForNextLevel);
     }
   };
 
