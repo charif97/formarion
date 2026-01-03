@@ -34,7 +34,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Persistence: Chargement de la MasteryLayer depuis localStorage
+  // Persistence: LOAD
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
@@ -52,12 +52,12 @@ const App: React.FC = () => {
           return;
         }
       } catch (e) {
-        console.error("Erreur lors du chargement de la MasteryLayer :", e);
+        console.error("Erreur de chargement MasteryLayer:", e);
         localStorage.removeItem(storageKey);
       }
     }
 
-    // Initialisation par défaut si aucune donnée persistée
+    // Fallback: Initialisation à partir des nœuds du graphe
     const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
       nodeId: node.id,
       confidence_score: 0,
@@ -67,11 +67,15 @@ const App: React.FC = () => {
     setMastery(initialMastery);
   }, [activeGraph]);
 
-  // Persistence: Sauvegarde automatique de la MasteryLayer
+  // Persistence: SAVE
   useEffect(() => {
-    if (activeGraph && mastery.length > 0) {
-      const storageKey = `masteryLayer:${activeGraph.id}`;
+    if (!activeGraph || mastery.length === 0) return;
+    
+    const storageKey = `masteryLayer:${activeGraph.id}`;
+    try {
       localStorage.setItem(storageKey, JSON.stringify(mastery));
+    } catch (e) {
+      console.error("Erreur de sauvegarde MasteryLayer (Quota possible):", e);
     }
   }, [mastery, activeGraph]);
 
@@ -143,10 +147,10 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
-    // 1. Mise à jour de la session actuelle pour le feedback UI
+    // 1. Mise à jour UI de la session
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // 2. Mise à jour déterministe de la MasteryLayer (MVP)
+    // 2. Mise à jour déterministe MasteryLayer (MVP)
     const nodeId = (updatedItem as any).sourceNodeId;
     const quality = updatedItem.lastQuality;
 
@@ -155,13 +159,11 @@ const App: React.FC = () => {
     setMastery(prev => prev.map(m => {
       if (m.nodeId !== nodeId) return m;
 
-      // confidence_score MVP : +10 (si >= 4), -10 (si <= 2), sinon 0. Clamp 0-100.
       let confidenceAdj = 0;
       if (quality >= 4) confidenceAdj = 10;
       else if (quality <= 2) confidenceAdj = -10;
+      
       const newConfidence = Math.max(0, Math.min(100, m.confidence_score + confidenceAdj));
-
-      // stability_index MVP : Dérivé de l'interval SRS. Formule : min(100, log2(interval + 1) * 20)
       const interval = updatedItem.sm2.interval || 0;
       const newStability = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
 
@@ -196,7 +198,6 @@ const App: React.FC = () => {
           onStartStudySet={() => {}} 
           onStartDailyReview={handleStartStudy} 
           level={1} currentXp={0} xpForNextLevel={100} mastery={0} 
-          // Note: Dans une version future, MasteryGlobal pourrait être calculée ici à partir de la MasteryLayer persistée
         />
       );
       case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
