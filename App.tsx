@@ -142,9 +142,18 @@ const App: React.FC = () => {
   const handleUpdateItem = (updatedItem: StudyItem) => {
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    const nodeId = updatedItem.sourceNodeId;
+    // A) Récupération robuste du nodeId
+    let nodeId = updatedItem.sourceNodeId;
+    if (!nodeId && updatedItem.id.startsWith('ige-')) {
+      const parts = updatedItem.id.split('-');
+      if (parts.length >= 3) {
+        nodeId = parts[2];
+      }
+    }
+
     const quality = updatedItem.lastQuality;
 
+    // C) Vérification stricte des entrées
     if (!nodeId || typeof quality !== 'number') return;
 
     setMastery(prev => prev.map(m => {
@@ -155,13 +164,16 @@ const App: React.FC = () => {
       else if (quality <= 2) confidenceAdj = -10;
       
       const newConfidence = Math.max(0, Math.min(100, m.confidence_score + confidenceAdj));
+      
+      // B) Mise à jour stabilité avec lissage (0.7 / 0.3)
       const interval = updatedItem.sm2.interval || 0;
-      const newStability = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
+      const newStabilityCalculated = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
+      const smoothedStability = Math.round(0.7 * m.stability_index + 0.3 * newStabilityCalculated);
 
       return {
         ...m,
         confidence_score: newConfidence,
-        stability_index: newStability,
+        stability_index: smoothedStability,
         last_interaction_at: new Date().toISOString()
       };
     }));
