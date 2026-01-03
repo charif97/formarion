@@ -22,6 +22,7 @@ import { calibrateSession } from './services/caeService';
 import { computeDirective } from './services/poeService';
 import { generateStudyItems } from './services/igeService';
 import { normalizeMasteryLayer } from './lib/mastery';
+import { xpForLevel, awardXp, applyXp } from './lib/xp';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -31,6 +32,11 @@ const App: React.FC = () => {
   const [mastery, setMastery] = useState<MasteryLayer>([]);
   const [currentSessionItems, setCurrentSessionItems] = useState<StudyItem[]>([]);
   
+  // Gamification state
+  const [level, setLevel] = useState(1);
+  const [currentXp, setCurrentXp] = useState(0);
+  const [xpForNextLevel, setXpForNextLevel] = useState(xpForLevel(1));
+
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
@@ -92,6 +98,41 @@ const App: React.FC = () => {
       console.error("Échec de persistance LocalStorage (MasteryLayer):", e);
     }
   }, [mastery, activeGraph]);
+
+  // Persistence Gamification: LOAD
+  useEffect(() => {
+    if (!activeGraph) return;
+    const key = `progress:${activeGraph.id}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        const { level: l, currentXp: x } = JSON.parse(saved);
+        const validatedLevel = Math.max(1, l || 1);
+        const validatedXp = Math.max(0, x || 0);
+        setLevel(validatedLevel);
+        setCurrentXp(validatedXp);
+        setXpForNextLevel(xpForLevel(validatedLevel));
+      } catch (e) {
+        console.error("Échec du chargement de la progression:", e);
+      }
+    } else {
+      // Initialisation si aucune donnée
+      setLevel(1);
+      setCurrentXp(0);
+      setXpForNextLevel(xpForLevel(1));
+    }
+  }, [activeGraph]);
+
+  // Persistence Gamification: SAVE
+  useEffect(() => {
+    if (!activeGraph) return;
+    const key = `progress:${activeGraph.id}`;
+    try {
+      localStorage.setItem(key, JSON.stringify({ level, currentXp }));
+    } catch (e) {
+      console.error("Échec de sauvegarde de la progression:", e);
+    }
+  }, [level, currentXp, activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ id: Date.now(), message, type });
@@ -182,6 +223,7 @@ const App: React.FC = () => {
     // C) Vérification stricte des entrées
     if (!nodeId || typeof quality !== 'number') return;
 
+    // Mise à jour de la maîtrise
     setMastery(prev => prev.map(m => {
       if (m.nodeId !== nodeId) return m;
 
@@ -203,6 +245,15 @@ const App: React.FC = () => {
         last_interaction_at: new Date().toISOString()
       };
     }));
+
+    // Gamification update
+    const gained = awardXp(quality);
+    if (gained > 0) {
+      const nextProgression = applyXp(level, currentXp, gained);
+      setLevel(nextProgression.level);
+      setCurrentXp(nextProgression.currentXp);
+      setXpForNextLevel(nextProgression.xpForNextLevel);
+    }
   };
 
   const renderContent = () => {
@@ -226,9 +277,9 @@ const App: React.FC = () => {
           onNewSet={() => setAppState(AppState.Import)} 
           onStartStudySet={() => {}} 
           onStartDailyReview={handleStartStudy} 
-          level={1} 
-          currentXp={0} 
-          xpForNextLevel={100} 
+          level={level} 
+          currentXp={currentXp} 
+          xpForNextLevel={xpForNextLevel} 
           mastery={overallMastery} 
         />
       );
