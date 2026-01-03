@@ -47,9 +47,19 @@ const App: React.FC = () => {
     if (storedData) {
       try {
         const parsed = JSON.parse(storedData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        // Validation stricte de la structure MasteryLayer
+        const isValid = Array.isArray(parsed) && parsed.every(item => 
+          typeof item.nodeId === "string" &&
+          typeof item.confidence_score === "number" &&
+          typeof item.stability_index === "number" &&
+          (item.last_interaction_at === null || typeof item.last_interaction_at === "string")
+        );
+
+        if (isValid) {
           setMastery(parsed);
           return;
+        } else {
+          localStorage.removeItem(storageKey);
         }
       } catch (e) {
         console.error("Erreur de chargement MasteryLayer:", e);
