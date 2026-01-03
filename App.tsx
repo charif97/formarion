@@ -21,6 +21,7 @@ import { generateKnowledgeGraph } from './services/geminiService';
 import { calibrateSession } from './services/caeService';
 import { computeDirective } from './services/poeService';
 import { generateStudyItems } from './services/igeService';
+import { normalizeMasteryLayer } from './lib/mastery';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -34,7 +35,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Persistence: LOAD
+  // Persistence: LOAD MasteryLayer avec Normalisation
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
@@ -43,41 +44,23 @@ const App: React.FC = () => {
 
     const storageKey = `masteryLayer:${activeGraph.id}`;
     const storedData = localStorage.getItem(storageKey);
+    let parsed: MasteryLayer | null = null;
 
     if (storedData) {
       try {
-        const parsed = JSON.parse(storedData);
-        // Validation stricte de la structure MasteryLayer
-        const isValid = Array.isArray(parsed) && parsed.every(item => 
-          typeof item.nodeId === "string" &&
-          typeof item.confidence_score === "number" &&
-          typeof item.stability_index === "number" &&
-          (item.last_interaction_at === null || typeof item.last_interaction_at === "string")
-        );
-
-        if (isValid) {
-          setMastery(parsed);
-          return;
-        } else {
-          localStorage.removeItem(storageKey);
-        }
+        parsed = JSON.parse(storedData);
       } catch (e) {
-        console.error("Erreur de chargement MasteryLayer:", e);
+        console.error("Erreur fatale lors du parsing de la MasteryLayer:", e);
         localStorage.removeItem(storageKey);
       }
     }
 
-    // Fallback: Initialisation à partir des nœuds du graphe
-    const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
-      nodeId: node.id,
-      confidence_score: 0,
-      stability_index: 0,
-      last_interaction_at: null
-    }));
-    setMastery(initialMastery);
+    // Normalisation déterministe alignée sur les nœuds du graphe actif
+    const normalizedMastery = normalizeMasteryLayer(activeGraph.nodes, parsed);
+    setMastery(normalizedMastery);
   }, [activeGraph]);
 
-  // Persistence: SAVE
+  // Persistence: SAVE MasteryLayer
   useEffect(() => {
     if (!activeGraph || mastery.length === 0) return;
     
@@ -85,7 +68,7 @@ const App: React.FC = () => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(mastery));
     } catch (e) {
-      console.error("Erreur de sauvegarde MasteryLayer (Quota possible):", e);
+      console.error("Échec de persistance LocalStorage (MasteryLayer):", e);
     }
   }, [mastery, activeGraph]);
 
@@ -157,10 +140,8 @@ const App: React.FC = () => {
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
-    // 1. Mise à jour UI de la session
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // 2. Mise à jour déterministe MasteryLayer (MVP)
     const nodeId = (updatedItem as any).sourceNodeId;
     const quality = updatedItem.lastQuality;
 
