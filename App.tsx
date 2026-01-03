@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   AppState, 
   UserRole, 
@@ -34,6 +34,14 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
+
+  // Calcul de la maîtrise globale pour le Dashboard
+  const overallMastery = useMemo(() => {
+    if (mastery.length === 0) return 0;
+    const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
+    const avg = sum / mastery.length;
+    return Math.min(100, Math.max(0, Math.round(avg)));
+  }, [mastery]);
 
   // Persistence: LOAD MasteryLayer avec Normalisation
   useEffect(() => {
@@ -144,10 +152,15 @@ const App: React.FC = () => {
 
     // A) Récupération robuste du nodeId
     let nodeId = updatedItem.sourceNodeId;
-    if (!nodeId && updatedItem.id.startsWith('ige-')) {
-      const parts = updatedItem.id.split('-');
-      if (parts.length >= 3) {
-        nodeId = parts[2];
+    if (!nodeId) {
+      if (!activeGraph) return; // Si activeGraph null -> ne rien faire.
+      if (updatedItem.id.startsWith('ige-')) {
+        const graphId = activeGraph.id;
+        const prefix = `ige-${graphId}-`;
+        if (updatedItem.id.startsWith(prefix)) {
+          const remaining = updatedItem.id.substring(prefix.length);
+          nodeId = remaining.split('-')[0];
+        }
       }
     }
 
@@ -200,7 +213,10 @@ const App: React.FC = () => {
           onNewSet={() => setAppState(AppState.Import)} 
           onStartStudySet={() => {}} 
           onStartDailyReview={handleStartStudy} 
-          level={1} currentXp={0} xpForNextLevel={100} mastery={0} 
+          level={1} 
+          currentXp={0} 
+          xpForNextLevel={100} 
+          mastery={overallMastery} 
         />
       );
       case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
