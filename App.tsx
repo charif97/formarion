@@ -34,17 +34,46 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
+  // Persistence: Chargement de la MasteryLayer depuis localStorage
   useEffect(() => {
-    if (activeGraph && mastery.length === 0) {
-      const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
-        nodeId: node.id,
-        confidence_score: 0,
-        stability_index: 0,
-        last_interaction_at: null
-      }));
-      setMastery(initialMastery);
+    if (!activeGraph) {
+      setMastery([]);
+      return;
     }
+
+    const storageKey = `masteryLayer:${activeGraph.id}`;
+    const storedData = localStorage.getItem(storageKey);
+
+    if (storedData) {
+      try {
+        const parsed = JSON.parse(storedData);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMastery(parsed);
+          return;
+        }
+      } catch (e) {
+        console.error("Erreur lors du chargement de la MasteryLayer :", e);
+        localStorage.removeItem(storageKey);
+      }
+    }
+
+    // Initialisation par défaut si aucune donnée persistée
+    const initialMastery: MasteryLayer = activeGraph.nodes.map(node => ({
+      nodeId: node.id,
+      confidence_score: 0,
+      stability_index: 0,
+      last_interaction_at: null
+    }));
+    setMastery(initialMastery);
   }, [activeGraph]);
+
+  // Persistence: Sauvegarde automatique de la MasteryLayer
+  useEffect(() => {
+    if (activeGraph && mastery.length > 0) {
+      const storageKey = `masteryLayer:${activeGraph.id}`;
+      localStorage.setItem(storageKey, JSON.stringify(mastery));
+    }
+  }, [mastery, activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ id: Date.now(), message, type });
@@ -167,6 +196,7 @@ const App: React.FC = () => {
           onStartStudySet={() => {}} 
           onStartDailyReview={handleStartStudy} 
           level={1} currentXp={0} xpForNextLevel={100} mastery={0} 
+          // Note: Dans une version future, MasteryGlobal pourrait être calculée ici à partir de la MasteryLayer persistée
         />
       );
       case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
