@@ -27,19 +27,15 @@ import { xpForLevel, awardXp, applyXp } from './lib/xp';
 import { buildDailyReviewQueue } from './lib/review';
 import { computeWeakNodes } from './lib/weakNodes';
 
-/**
- * Helper de parsing robuste pour le localStorage
- */
-function safeJson<T>(raw: string | null, fallback: T): T {
+const safeJson = <T,>(raw: string | null, fallback: T): T => {
   if (!raw) return fallback;
   try {
     const parsed = JSON.parse(raw);
     return parsed !== null ? (parsed as T) : fallback;
-  } catch (e) {
-    console.warn("Corruption détectée dans le localStorage, retour au fallback.");
+  } catch {
     return fallback;
   }
-}
+};
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -63,7 +59,6 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // 1. Mappage des labels des nœuds
   const nodeLabels = useMemo(() => {
     const map: Record<string, string> = {};
     activeGraph?.nodes.forEach(node => {
@@ -72,12 +67,10 @@ const App: React.FC = () => {
     return map;
   }, [activeGraph]);
 
-  // 2. Détection des nœuds faibles (Nouveauté 8.1)
   const weakNodes = useMemo(() => {
     return computeWeakNodes(mastery, activityLog, nodeLabels);
   }, [mastery, activityLog, nodeLabels]);
 
-  // 3. Calcul des statistiques réelles et du Streak
   const dashboardStats = useMemo(() => {
     const now = new Date();
     const nowTime = now.getTime();
@@ -133,7 +126,6 @@ const App: React.FC = () => {
     };
   }, [storedStudyItems, mastery]);
 
-  // 4. Aggrégation de l'historique sur 14 jours
   const history14 = useMemo(() => {
     const result = [];
     const now = new Date();
@@ -162,7 +154,6 @@ const App: React.FC = () => {
     return result;
   }, [activityLog]);
 
-  // 5. Moteur de prédictions IA (MVP)
   const predictions = useMemo(() => {
     const now = Date.now();
     const incomingDue48h = storedStudyItems.filter(item => {
@@ -209,7 +200,6 @@ const App: React.FC = () => {
     };
   }, [history14, storedStudyItems, dashboardStats.dueCount, activityLog]);
 
-  // persistence LOAD avec safeJson
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
@@ -223,7 +213,8 @@ const App: React.FC = () => {
     
     // Mastery
     const mData = localStorage.getItem(`masteryLayer:${gId}`);
-    setMastery(normalizeMasteryLayer(activeGraph.nodes, safeJson(mData, null)));
+    const mParsed = safeJson<MasteryLayer | null>(mData, null);
+    setMastery(normalizeMasteryLayer(activeGraph.nodes, mParsed));
 
     // Items
     const iData = localStorage.getItem(`studyItems:${gId}`);
@@ -235,13 +226,12 @@ const App: React.FC = () => {
 
     // Progress
     const pData = localStorage.getItem(`progress:${gId}`);
-    const savedProgress = safeJson(pData, { level: 1, currentXp: 0 });
-    const level = savedProgress.level || 1;
-    const currentXp = savedProgress.currentXp || 0;
-    setProgress({ level, currentXp, xpForNextLevel: xpForLevel(level) });
+    const pParsed = safeJson<{level?:number; currentXp?:number}>(pData, {});
+    const l = Math.max(1, pParsed.level || 1);
+    const x = Math.max(0, pParsed.currentXp || 0);
+    setProgress({ level: l, currentXp: x, xpForNextLevel: xpForLevel(l) });
   }, [activeGraph]);
 
-  // persistence SAVE
   useEffect(() => {
     if (!activeGraph) return;
     const gId = activeGraph.id;
@@ -352,21 +342,17 @@ const App: React.FC = () => {
   const handleUpdateItem = (updatedItem: StudyItem) => {
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
     
-    // Logique UPSERT pour storedStudyItems
     setStoredStudyItems(prev => {
-      const idx = prev.findIndex(item => item.id === updatedItem.id);
-      if (idx !== -1) {
-        const next = [...prev];
-        next[idx] = updatedItem;
-        return next;
-      }
-      return [...prev, updatedItem];
+      const idx = prev.findIndex(i => i.id === updatedItem.id);
+      if (idx === -1) return [...prev, updatedItem];
+      const next = [...prev];
+      next[idx] = updatedItem;
+      return next;
     });
 
     const quality = updatedItem.lastQuality ?? 0;
     const gainedXp = awardXp(quality);
 
-    // Logging activity
     if (activeGraph) {
       const event: ActivityEvent = {
         ts: new Date().toISOString(),
@@ -387,7 +373,6 @@ const App: React.FC = () => {
       });
     }
 
-    // Update Mastery
     const nodeId = updatedItem.sourceNodeId;
     if (nodeId) {
       setMastery(prev => prev.map(m => {

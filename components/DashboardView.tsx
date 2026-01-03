@@ -3,11 +3,8 @@ import { UserRole, Class, StudySet, MasteryLayer } from '../types';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import { CheckIcon, LightBulbIcon, ClockIcon, BookOpenIcon, AddIcon } from './icons';
+import { CheckIcon, LightBulbIcon, ClockIcon, BookOpenIcon } from './icons';
 import { WeakNodeInsight } from '../lib/weakNodes';
-
-// Si AddIcon n'était pas exporté (sécurité), on pourrait le définir ici.
-// Vu qu'il est présent dans icons.tsx, on l'utilise directement.
 
 interface DashboardProps {
   classes: Class[];
@@ -110,7 +107,6 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Historique d'Activité Réel */}
                 <div className="lg:col-span-2 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                     <div className="flex justify-between items-center mb-8">
                         <div>
@@ -178,7 +174,6 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     </div>
                 </div>
 
-                {/* Prédictions IA (MVP) */}
                 <div className="flex flex-col gap-6">
                     <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex-grow">
                         <div className="flex items-center gap-2 mb-6">
@@ -222,7 +217,6 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                 </div>
             </div>
 
-            {/* Widget de Renforcement IA (Nouveauté 8.1) */}
             {weakNodes.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-1 bg-rose-600 p-8 rounded-[40px] text-white shadow-xl shadow-rose-200 flex flex-col justify-between">
@@ -376,6 +370,12 @@ const ManagerDashboard: React.FC<DashboardProps> = (props) => {
         </div>
     );
 };
+
+const AddIcon = ({ className }: { className?: string }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+  </svg>
+);
 
 export const DashboardView: React.FC<DashboardProps> = (props) => {
     return (
