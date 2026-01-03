@@ -6,6 +6,9 @@ import {
 import { CheckIcon, LightBulbIcon, ClockIcon, BookOpenIcon, AddIcon } from './icons';
 import { WeakNodeInsight } from '../lib/weakNodes';
 
+// Si AddIcon n'était pas exporté (sécurité), on pourrait le définir ici.
+// Vu qu'il est présent dans icons.tsx, on l'utilise directement.
+
 interface DashboardProps {
   classes: Class[];
   onNewSet: () => void;

@@ -25,7 +25,21 @@ import { generateStudyItems } from './services/igeService';
 import { normalizeMasteryLayer } from './lib/mastery';
 import { xpForLevel, awardXp, applyXp } from './lib/xp';
 import { buildDailyReviewQueue } from './lib/review';
-import { computeWeakNodes, WeakNodeInsight } from './lib/weakNodes';
+import { computeWeakNodes } from './lib/weakNodes';
+
+/**
+ * Helper de parsing robuste pour le localStorage
+ */
+function safeJson<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed !== null ? (parsed as T) : fallback;
+  } catch (e) {
+    console.warn("Corruption détectée dans le localStorage, retour au fallback.");
+    return fallback;
+  }
+}
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -36,6 +50,7 @@ const App: React.FC = () => {
   const [storedStudyItems, setStoredStudyItems] = useState<StudyItem[]>([]);
   const [currentSessionItems, setCurrentSessionItems] = useState<StudyItem[]>([]);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([]);
+  const [sessionMode, setSessionMode] = useState<'DailyReview' | 'Session'>('Session');
   
   // Gamification state
   const [progress, setProgress] = useState({ 
@@ -194,7 +209,7 @@ const App: React.FC = () => {
     };
   }, [history14, storedStudyItems, dashboardStats.dueCount, activityLog]);
 
-  // Load persistence logic
+  // persistence LOAD avec safeJson
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
@@ -208,25 +223,25 @@ const App: React.FC = () => {
     
     // Mastery
     const mData = localStorage.getItem(`masteryLayer:${gId}`);
-    setMastery(normalizeMasteryLayer(activeGraph.nodes, mData ? JSON.parse(mData) : null));
+    setMastery(normalizeMasteryLayer(activeGraph.nodes, safeJson(mData, null)));
 
     // Items
     const iData = localStorage.getItem(`studyItems:${gId}`);
-    setStoredStudyItems(iData ? JSON.parse(iData) : []);
+    setStoredStudyItems(safeJson<StudyItem[]>(iData, []));
 
     // Activity Log
     const lData = localStorage.getItem(`activityLog:${gId}`);
-    setActivityLog(lData ? JSON.parse(lData) : []);
+    setActivityLog(safeJson<ActivityEvent[]>(lData, []));
 
     // Progress
     const pData = localStorage.getItem(`progress:${gId}`);
-    if (pData) {
-      const { level, currentXp } = JSON.parse(pData);
-      setProgress({ level: level || 1, currentXp: currentXp || 0, xpForNextLevel: xpForLevel(level || 1) });
-    }
+    const savedProgress = safeJson(pData, { level: 1, currentXp: 0 });
+    const level = savedProgress.level || 1;
+    const currentXp = savedProgress.currentXp || 0;
+    setProgress({ level, currentXp, xpForNextLevel: xpForLevel(level) });
   }, [activeGraph]);
 
-  // Save changes to persistence
+  // persistence SAVE
   useEffect(() => {
     if (!activeGraph) return;
     const gId = activeGraph.id;
@@ -260,13 +275,11 @@ const App: React.FC = () => {
       showToast("Tous vos items sont à jour !", "success");
       return;
     }
+    setSessionMode('DailyReview');
     setCurrentSessionItems(queue);
     setAppState(AppState.Study);
   };
 
-  /**
-   * Lance une session focalisée sur les nœuds faibles (Nouveauté 8.1)
-   */
   const handleStartWeakReview = () => {
     if (weakNodes.length === 0) {
       showToast("Aucun nœud faible détecté. Continuez votre progression !");
@@ -283,7 +296,7 @@ const App: React.FC = () => {
       return;
     }
 
-    // On utilise la même logique que buildDailyReviewQueue mais restreinte
+    setSessionMode('Session');
     const queue = buildDailyReviewQueue(filteredItems, new Date(), 10);
     setCurrentSessionItems(queue);
     setAppState(AppState.Study);
@@ -310,6 +323,7 @@ const App: React.FC = () => {
         });
         return merged;
       });
+      setSessionMode('Session');
       setCurrentSessionItems(newItems);
       setAppState(AppState.Study);
     } catch (e) {
@@ -337,7 +351,17 @@ const App: React.FC = () => {
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
-    setStoredStudyItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+    
+    // Logique UPSERT pour storedStudyItems
+    setStoredStudyItems(prev => {
+      const idx = prev.findIndex(item => item.id === updatedItem.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = updatedItem;
+        return next;
+      }
+      return [...prev, updatedItem];
+    });
 
     const quality = updatedItem.lastQuality ?? 0;
     const gainedXp = awardXp(quality);
@@ -351,7 +375,7 @@ const App: React.FC = () => {
         gainedXp,
         itemId: updatedItem.id,
         nodeId: updatedItem.sourceNodeId,
-        mode: currentSessionItems.length > 10 ? 'Session' : 'DailyReview'
+        mode: sessionMode
       };
       
       setActivityLog(prev => {
