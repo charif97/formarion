@@ -104,6 +104,11 @@ export interface StudyItem {
   correctAnswerIndex?: number; // Spécifique MCQ
   correctAnswer?: boolean; // Spécifique True/False
   lastQuality?: number; // MVP: Stocke la dernière note pour mise à jour Mastery
+  
+  // Provenance & Alignement Graphe
+  sourceNodeId?: string;
+  sourceAtoms?: string[];
+  atomCoverage?: number;
 }
 
 /**

@@ -142,7 +142,7 @@ const App: React.FC = () => {
   const handleUpdateItem = (updatedItem: StudyItem) => {
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    const nodeId = (updatedItem as any).sourceNodeId;
+    const nodeId = updatedItem.sourceNodeId;
     const quality = updatedItem.lastQuality;
 
     if (!nodeId || typeof quality !== 'number') return;

@@ -119,7 +119,7 @@ export async function generateStudyItems(
       return fallbackGeneration(graph.id, targetNodes);
     }
 
-    return data.items.map((item: any, idx: number) => ({
+    return data.items.map((item: any, idx: number): StudyItem => ({
       ...item,
       id: `ige-${graph.id}-${item.sourceNodeId || 'unknown'}-${idx}`,
       sm2: { interval: 0, repetitions: 0, efactor: 2.5 },
@@ -151,7 +151,7 @@ function fallbackGeneration(graphId: string, nodes: KnowledgeNode[]): StudyItem[
         sourceNodeId: node.id,
         sourceAtoms: [atom],
         atomCoverage: 1
-      } as any);
+      });
     });
   });
   return items;
