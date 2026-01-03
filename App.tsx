@@ -117,7 +117,7 @@ const App: React.FC = () => {
     // 1. Mise à jour de la session actuelle pour le feedback UI
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    // 2. Mise à jour de la MasteryLayer (MVP)
+    // 2. Mise à jour déterministe de la MasteryLayer (MVP)
     const nodeId = (updatedItem as any).sourceNodeId;
     const quality = updatedItem.lastQuality;
 
@@ -126,11 +126,13 @@ const App: React.FC = () => {
     setMastery(prev => prev.map(m => {
       if (m.nodeId !== nodeId) return m;
 
-      // Logique MVP : Score de confiance (+10 succès, -10 échec)
-      const adjustment = quality >= 4 ? 10 : -10;
-      const newConfidence = Math.max(0, Math.min(100, m.confidence_score + adjustment));
-      
-      // Logique MVP : Index de stabilité basé sur l'intervalle SRS (formule log simple)
+      // confidence_score MVP : +10 (si >= 4), -10 (si <= 2), sinon 0. Clamp 0-100.
+      let confidenceAdj = 0;
+      if (quality >= 4) confidenceAdj = 10;
+      else if (quality <= 2) confidenceAdj = -10;
+      const newConfidence = Math.max(0, Math.min(100, m.confidence_score + confidenceAdj));
+
+      // stability_index MVP : Dérivé de l'interval SRS. Formule : min(100, log2(interval + 1) * 20)
       const interval = updatedItem.sm2.interval || 0;
       const newStability = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
 
