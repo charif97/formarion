@@ -7,7 +7,8 @@ import {
   UserSignals, 
   MasteryLayer, 
   StudyItem,
-  StudySet
+  StudySet,
+  ActivityEvent
 } from './types';
 import { DashboardView } from './components/DashboardView';
 import { ImportView } from './components/ImportView';
@@ -24,6 +25,7 @@ import { generateStudyItems } from './services/igeService';
 import { normalizeMasteryLayer } from './lib/mastery';
 import { xpForLevel, awardXp, applyXp } from './lib/xp';
 import { buildDailyReviewQueue } from './lib/review';
+import { computeWeakNodes, WeakNodeInsight } from './lib/weakNodes';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.Landing);
@@ -33,6 +35,7 @@ const App: React.FC = () => {
   const [mastery, setMastery] = useState<MasteryLayer>([]);
   const [storedStudyItems, setStoredStudyItems] = useState<StudyItem[]>([]);
   const [currentSessionItems, setCurrentSessionItems] = useState<StudyItem[]>([]);
+  const [activityLog, setActivityLog] = useState<ActivityEvent[]>([]);
   
   // Gamification state
   const [progress, setProgress] = useState({ 
@@ -45,7 +48,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'error' } | null>(null);
 
-  // Mappage des labels des nœuds pour le Dashboard
+  // 1. Mappage des labels des nœuds
   const nodeLabels = useMemo(() => {
     const map: Record<string, string> = {};
     activeGraph?.nodes.forEach(node => {
@@ -54,48 +57,52 @@ const App: React.FC = () => {
     return map;
   }, [activeGraph]);
 
-  // Calcul des statistiques réelles pour le Dashboard
+  // 2. Détection des nœuds faibles (Nouveauté 8.1)
+  const weakNodes = useMemo(() => {
+    return computeWeakNodes(mastery, activityLog, nodeLabels);
+  }, [mastery, activityLog, nodeLabels]);
+
+  // 3. Calcul des statistiques réelles et du Streak
   const dashboardStats = useMemo(() => {
-    const now = Date.now();
-    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const nowTime = now.getTime();
     
-    // Items dus
     const dueOnlyCount = storedStudyItems.filter(item => 
-      item.nextReviewAt && new Date(item.nextReviewAt).getTime() <= now
+      item.nextReviewAt && new Date(item.nextReviewAt).getTime() <= nowTime
     ).length;
 
-    // Nouveaux items
     const newCount = storedStudyItems.filter(item => !item.lastReviewedAt).length;
-
-    // File de révision totale
     const dueCount = dueOnlyCount + newCount;
     const totalItems = storedStudyItems.length;
     
-    // Maîtrise
     const masteredNodes = mastery.filter(m => m.confidence_score >= 70).length;
     const totalNodes = mastery.length;
     const sum = mastery.reduce((acc, m) => acc + m.confidence_score, 0);
     const avg = totalNodes > 0 ? sum / totalNodes : 0;
     const overallMastery = Math.max(0, Math.min(100, Math.round(avg)));
 
-    // Calcul de la série (Streak)
-    const reviewDates = new Set(
+    const reviewDates = Array.from(new Set(
       storedStudyItems
         .filter(i => i.lastReviewedAt)
-        .map(i => new Date(i.lastReviewedAt!).toISOString().split('T')[0])
-    );
+        .map(i => new Date(i.lastReviewedAt!).toLocaleDateString('fr-CA'))
+    )).sort().reverse();
     
     let streakCount = 0;
-    if (reviewDates.size > 0) {
-      const checkDate = new Date();
-      // Si pas de révision aujourd'hui, on vérifie à partir d'hier
-      if (!reviewDates.has(todayStr)) {
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-      
-      while (reviewDates.has(checkDate.toISOString().split('T')[0])) {
-        streakCount++;
-        checkDate.setDate(checkDate.getDate() - 1);
+    if (reviewDates.length > 0) {
+      const todayStr = now.toLocaleDateString('fr-CA');
+      const yesterday = new Date(nowTime - 86400000);
+      const yesterdayStr = yesterday.toLocaleDateString('fr-CA');
+
+      if (reviewDates[0] === todayStr || reviewDates[0] === yesterdayStr) {
+        let checkDate = new Date(reviewDates[0]);
+        for (const dateStr of reviewDates) {
+          if (dateStr === checkDate.toLocaleDateString('fr-CA')) {
+            streakCount++;
+            checkDate.setDate(checkDate.getDate() - 1);
+          } else {
+            break;
+          }
+        }
       }
     }
 
@@ -111,96 +118,127 @@ const App: React.FC = () => {
     };
   }, [storedStudyItems, mastery]);
 
-  // Persistence Mastery: LOAD
+  // 4. Aggrégation de l'historique sur 14 jours
+  const history14 = useMemo(() => {
+    const result = [];
+    const now = new Date();
+    
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400000);
+      const dateKey = d.toLocaleDateString('fr-CA');
+      
+      const daysEvents = activityLog.filter(e => 
+        new Date(e.ts).toLocaleDateString('fr-CA') === dateKey
+      );
+      
+      const studiedCount = daysEvents.length;
+      const xpGained = daysEvents.reduce((acc, e) => acc + (e.gainedXp || 0), 0);
+      const avgQuality = studiedCount > 0 
+        ? Math.round((daysEvents.reduce((acc, e) => acc + (e.quality || 0), 0) / studiedCount) * 10) / 10
+        : 0;
+        
+      result.push({
+        date: dateKey,
+        studiedCount,
+        avgQuality,
+        xpGained
+      });
+    }
+    return result;
+  }, [activityLog]);
+
+  // 5. Moteur de prédictions IA (MVP)
+  const predictions = useMemo(() => {
+    const now = Date.now();
+    const incomingDue48h = storedStudyItems.filter(item => {
+      if (!item.nextReviewAt) return false;
+      const t = new Date(item.nextReviewAt).getTime();
+      return t > now && t <= now + (48 * 3600 * 1000);
+    }).length;
+
+    const last7Days = history14.slice(-7);
+    const totalLast7 = last7Days.reduce((acc, d) => acc + d.studiedCount, 0);
+    const dailyCapacity = Math.round(totalLast7 / 7);
+
+    let backlogRisk: "Faible" | "Modéré" | "Élevé" = "Faible";
+    if (dailyCapacity === 0) {
+      backlogRisk = incomingDue48h > 0 ? "Modéré" : "Faible";
+    } else {
+      if (incomingDue48h > dailyCapacity * 2) backlogRisk = "Élevé";
+      else if (incomingDue48h > dailyCapacity) backlogRisk = "Modéré";
+    }
+
+    const estDaysToClear = dailyCapacity > 0 
+      ? Math.ceil(dashboardStats.dueCount / dailyCapacity) 
+      : null;
+
+    const hourCounts: Record<number, number> = {};
+    activityLog.forEach(e => {
+      const h = new Date(e.ts).getHours();
+      hourCounts[h] = (hourCounts[h] || 0) + 1;
+    });
+    let peakHour: number | null = null;
+    let maxCount = 0;
+    Object.entries(hourCounts).forEach(([h, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        peakHour = parseInt(h);
+      }
+    });
+
+    return {
+      dailyCapacity,
+      backlogRisk,
+      estDaysToClear,
+      peakHour
+    };
+  }, [history14, storedStudyItems, dashboardStats.dueCount, activityLog]);
+
+  // Load persistence logic
   useEffect(() => {
     if (!activeGraph) {
       setMastery([]);
-      return;
-    }
-    const storageKey = `masteryLayer:${activeGraph.id}`;
-    const storedData = localStorage.getItem(storageKey);
-    let parsed: MasteryLayer | null = null;
-    if (storedData) {
-      try { parsed = JSON.parse(storedData); } catch (e) { localStorage.removeItem(storageKey); }
-    }
-    setMastery(normalizeMasteryLayer(activeGraph.nodes, parsed));
-  }, [activeGraph]);
-
-  // Persistence Mastery: SAVE
-  useEffect(() => {
-    if (!activeGraph || mastery.length === 0) return;
-    try {
-      localStorage.setItem(`masteryLayer:${activeGraph.id}`, JSON.stringify(mastery));
-    } catch (e) {
-      console.error("Quota exceeded or localStorage disabled: Mastery Layer not saved.", e);
-    }
-  }, [mastery, activeGraph]);
-
-  // Persistence StudyItems: LOAD
-  useEffect(() => {
-    if (!activeGraph) {
       setStoredStudyItems([]);
-      return;
-    }
-    const storageKey = `studyItems:${activeGraph.id}`;
-    const storedData = localStorage.getItem(storageKey);
-    if (storedData) {
-      try {
-        setStoredStudyItems(JSON.parse(storedData));
-      } catch (e) {
-        localStorage.removeItem(storageKey);
-        setStoredStudyItems([]);
-      }
-    } else {
-      setStoredStudyItems([]);
-    }
-  }, [activeGraph]);
-
-  // Persistence StudyItems: SAVE
-  useEffect(() => {
-    if (!activeGraph) return;
-    try {
-      localStorage.setItem(`studyItems:${activeGraph.id}`, JSON.stringify(storedStudyItems));
-    } catch (e) {
-      console.error("Quota exceeded or localStorage disabled: Study Items not saved.", e);
-    }
-  }, [storedStudyItems, activeGraph]);
-
-  // Persistence Gamification: LOAD
-  useEffect(() => {
-    if (!activeGraph) {
+      setActivityLog([]);
       setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
       return;
     }
-    const storageKey = `progress:${activeGraph.id}`;
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const { level: l, currentXp: x } = JSON.parse(saved);
-        const vL = Math.max(1, l || 1);
-        const vX = Math.max(0, x || 0);
-        setProgress({ level: vL, currentXp: vX, xpForNextLevel: xpForLevel(vL) });
-      } catch (e) {
-        localStorage.removeItem(storageKey);
-        setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
-      }
-    } else {
-      setProgress({ level: 1, currentXp: 0, xpForNextLevel: xpForLevel(1) });
+
+    const gId = activeGraph.id;
+    
+    // Mastery
+    const mData = localStorage.getItem(`masteryLayer:${gId}`);
+    setMastery(normalizeMasteryLayer(activeGraph.nodes, mData ? JSON.parse(mData) : null));
+
+    // Items
+    const iData = localStorage.getItem(`studyItems:${gId}`);
+    setStoredStudyItems(iData ? JSON.parse(iData) : []);
+
+    // Activity Log
+    const lData = localStorage.getItem(`activityLog:${gId}`);
+    setActivityLog(lData ? JSON.parse(lData) : []);
+
+    // Progress
+    const pData = localStorage.getItem(`progress:${gId}`);
+    if (pData) {
+      const { level, currentXp } = JSON.parse(pData);
+      setProgress({ level: level || 1, currentXp: currentXp || 0, xpForNextLevel: xpForLevel(level || 1) });
     }
   }, [activeGraph]);
 
-  // Persistence Gamification: SAVE
+  // Save changes to persistence
   useEffect(() => {
     if (!activeGraph) return;
+    const gId = activeGraph.id;
     try {
-      localStorage.setItem(`progress:${activeGraph.id}`, JSON.stringify({ 
-        level: progress.level, 
-        currentXp: progress.currentXp 
-      }));
+      localStorage.setItem(`masteryLayer:${gId}`, JSON.stringify(mastery));
+      localStorage.setItem(`studyItems:${gId}`, JSON.stringify(storedStudyItems));
+      localStorage.setItem(`progress:${gId}`, JSON.stringify({ level: progress.level, currentXp: progress.currentXp }));
+      localStorage.setItem(`activityLog:${gId}`, JSON.stringify(activityLog));
     } catch (e) {
-      console.error("Quota exceeded or localStorage disabled: Progress not saved.", e);
+      console.error("Storage error:", e);
     }
-  }, [progress.level, progress.currentXp, activeGraph]);
+  }, [mastery, storedStudyItems, progress, activityLog, activeGraph]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ id: Date.now(), message, type });
@@ -214,69 +252,70 @@ const App: React.FC = () => {
 
   const handleStartDailyReview = () => {
     if (!activeGraph) {
-      showToast("Veuillez d'abord importer un document", "error");
       setAppState(AppState.Import);
       return;
     }
-
-    if (storedStudyItems.length === 0) {
-      showToast("Pas encore d'items à réviser. Lancez une première session personnalisée.", "error");
-      return;
-    }
-
     const queue = buildDailyReviewQueue(storedStudyItems, new Date(), 10);
     if (queue.length === 0) {
-      showToast("Tous vos items sont à jour ! Revenez plus tard ou lancez une session d'expansion.", "success");
+      showToast("Tous vos items sont à jour !", "success");
       return;
     }
-
     setCurrentSessionItems(queue);
     setAppState(AppState.Study);
   };
 
-  const handleCaeStart = async (signals: UserSignals) => {
-    if (!activeGraph) {
-      showToast("Veuillez d'abord importer un document", "error");
-      setAppState(AppState.Import);
+  /**
+   * Lance une session focalisée sur les nœuds faibles (Nouveauté 8.1)
+   */
+  const handleStartWeakReview = () => {
+    if (weakNodes.length === 0) {
+      showToast("Aucun nœud faible détecté. Continuez votre progression !");
       return;
     }
 
+    const weakNodeIds = weakNodes.map(w => w.nodeId);
+    const filteredItems = storedStudyItems.filter(item => 
+      item.sourceNodeId && weakNodeIds.includes(item.sourceNodeId)
+    );
+
+    if (filteredItems.length === 0) {
+      showToast("Pas d'items alignés sur les nœuds faibles; lancez une session d'expansion.", "error");
+      return;
+    }
+
+    // On utilise la même logique que buildDailyReviewQueue mais restreinte
+    const queue = buildDailyReviewQueue(filteredItems, new Date(), 10);
+    setCurrentSessionItems(queue);
+    setAppState(AppState.Study);
+    showToast(`Session de renforcement : ${queue.length} items prioritaires.`);
+  };
+
+  const handleCaeStart = async (signals: UserSignals) => {
+    if (!activeGraph) return;
     setIsLoading(true);
     setLoadingMessage("Analyse du contexte...");
     try {
       const context = await calibrateSession(signals);
       setUserContext(context);
-      
-      setLoadingMessage("Calcul de la stratégie...");
       const directive = computeDirective(activeGraph, mastery, context, signals.timeAvailable);
-
-      setLoadingMessage(`Génération des items...`);
       const newItems = await generateStudyItems(activeGraph, directive);
       
       setStoredStudyItems(prev => {
         const merged = [...prev];
         newItems.forEach(ni => {
           const idx = merged.findIndex(m => m.id === ni.id);
-          if (idx !== -1) {
-            if (!merged[idx].lastReviewedAt) {
-              merged[idx] = ni;
-            }
-          } else {
-            merged.push(ni);
+          if (idx === -1 || !merged[idx].lastReviewedAt) {
+            if (idx !== -1) merged[idx] = ni; else merged.push(ni);
           }
         });
         return merged;
       });
-
       setCurrentSessionItems(newItems);
-      showToast(`${newItems.length} items préparés.`);
       setAppState(AppState.Study);
     } catch (e) {
-      console.error(e);
       showToast("Erreur de préparation", "error");
     } finally {
       setIsLoading(false);
-      setLoadingMessage("");
     }
   };
 
@@ -293,51 +332,52 @@ const App: React.FC = () => {
       setAppState(AppState.Import);
     } finally {
       setIsLoading(false);
-      setLoadingMessage("");
     }
   };
 
   const handleUpdateItem = (updatedItem: StudyItem) => {
     setCurrentSessionItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+    setStoredStudyItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
 
-    setStoredStudyItems(prev => {
-      const idx = prev.findIndex(item => item.id === updatedItem.id);
-      if (idx !== -1) {
-        const next = [...prev];
-        next[idx] = updatedItem;
-        return next;
-      }
-      return [...prev, updatedItem];
-    });
+    const quality = updatedItem.lastQuality ?? 0;
+    const gainedXp = awardXp(quality);
 
-    let nodeId = updatedItem.sourceNodeId;
-    if (!nodeId && activeGraph) {
-      if (updatedItem.id.startsWith('ige-')) {
-        const prefix = `ige-${activeGraph.id}-`;
-        if (updatedItem.id.startsWith(prefix)) {
-          nodeId = updatedItem.id.substring(prefix.length).split('-')[0];
-        }
-      }
+    // Logging activity
+    if (activeGraph) {
+      const event: ActivityEvent = {
+        ts: new Date().toISOString(),
+        type: 'review',
+        quality,
+        gainedXp,
+        itemId: updatedItem.id,
+        nodeId: updatedItem.sourceNodeId,
+        mode: currentSessionItems.length > 10 ? 'Session' : 'DailyReview'
+      };
+      
+      setActivityLog(prev => {
+        const next = [...prev, event];
+        const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
+        return next
+          .filter(e => new Date(e.ts).getTime() > sixtyDaysAgo)
+          .slice(-3000);
+      });
     }
 
-    const quality = updatedItem.lastQuality;
-    if (nodeId && typeof quality === 'number') {
+    // Update Mastery
+    const nodeId = updatedItem.sourceNodeId;
+    if (nodeId) {
       setMastery(prev => prev.map(m => {
         if (m.nodeId !== nodeId) return m;
         let confAdj = quality >= 4 ? 10 : (quality <= 2 ? -10 : 0);
         const newConf = Math.max(0, Math.min(100, m.confidence_score + confAdj));
-        const interval = updatedItem.sm2.interval || 0;
-        const newStabCalc = Math.max(0, Math.min(100, Math.round(Math.log2(interval + 1) * 20)));
-        const smoothedStab = Math.round(0.7 * m.stability_index + 0.3 * newStabCalc);
+        const newStabCalc = Math.max(0, Math.min(100, Math.round(Math.log2((updatedItem.sm2.interval || 0) + 1) * 20)));
         return {
           ...m,
           confidence_score: newConf,
-          stability_index: smoothedStab,
+          stability_index: Math.round(0.7 * m.stability_index + 0.3 * newStabCalc),
           last_interaction_at: new Date().toISOString()
         };
       }));
-
-      const gainedXp = awardXp(quality);
       if (gainedXp > 0) {
         setProgress(prev => applyXp(prev.level, prev.currentXp, gainedXp));
       }
@@ -350,7 +390,6 @@ const App: React.FC = () => {
         <div className="flex flex-col items-center justify-center h-screen text-center p-8 bg-slate-50 animate-fade-in">
           <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-8"></div>
           <h2 className="text-2xl font-black text-slate-800 mb-2">{loadingMessage || "Chargement..."}</h2>
-          <p className="text-slate-400 font-medium">L'intelligence artificielle prépare vos ressources.</p>
         </div>
       );
     }
@@ -365,6 +404,7 @@ const App: React.FC = () => {
           onNewSet={() => setAppState(AppState.Import)} 
           onStartStudySet={() => {}} 
           onStartDailyReview={handleStartDailyReview} 
+          onStartWeakReview={handleStartWeakReview}
           level={progress.level} 
           currentXp={progress.currentXp} 
           xpForNextLevel={progress.xpForNextLevel} 
@@ -376,11 +416,13 @@ const App: React.FC = () => {
           masteredNodes={dashboardStats.masteredNodes}
           totalNodes={dashboardStats.totalNodes}
           streak={dashboardStats.streak}
-          masteryLayer={mastery}
+          history14={history14}
+          predictions={predictions}
+          weakNodes={weakNodes}
           nodeLabels={nodeLabels}
         />
       );
-      case AppState.Import: return <ImportView title="Ingestion de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
+      case AppState.Import: return <ImportView title="Import de Savoir" onGenerate={handleGenerateGraph} isLoading={isLoading} error={null} clearError={() => {}} />;
       case AppState.GraphValidation: return activeGraph ? <GraphValidationView graph={activeGraph} onConfirm={() => setAppState(AppState.Dashboard)} onCancel={() => setAppState(AppState.Import)} /> : null;
       case AppState.Study: 
         if (currentSessionItems.length > 0) {

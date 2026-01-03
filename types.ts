@@ -112,6 +112,19 @@ export interface StudyItem {
 }
 
 /**
+ * ACTIVITÉ & ANALYTICS
+ */
+export type ActivityEvent = {
+  ts: string;                 // ISO
+  type: 'review';
+  itemId: string;
+  nodeId?: string;
+  quality?: number;
+  mode?: 'DailyReview' | 'Session';
+  gainedXp?: number;
+};
+
+/**
  * IGE (Item Generation Engine) Metadata
  */
 export interface GeneratedStudyItem extends StudyItem {

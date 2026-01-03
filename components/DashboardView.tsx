@@ -4,16 +4,18 @@ import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { CheckIcon, LightBulbIcon, ClockIcon, BookOpenIcon, AddIcon } from './icons';
+import { WeakNodeInsight } from '../lib/weakNodes';
 
 interface DashboardProps {
   classes: Class[];
   onNewSet: () => void;
   onStartStudySet: (set: StudySet) => void;
   onStartDailyReview: () => void;
+  onStartWeakReview: () => void;
   level: number;
   currentXp: number;
   xpForNextLevel: number;
-  mastery: number; // Score global réel
+  mastery: number;
   role: UserRole;
   dueCount: number;
   dueOnlyCount: number;
@@ -24,6 +26,14 @@ interface DashboardProps {
   streak?: number;
   masteryLayer?: MasteryLayer;
   nodeLabels?: Record<string, string>;
+  history14: { date: string; studiedCount: number; avgQuality: number; xpGained: number }[];
+  predictions: { 
+    dailyCapacity: number; 
+    backlogRisk: "Faible" | "Modéré" | "Élevé"; 
+    estDaysToClear: number | null; 
+    peakHour: number | null 
+  };
+  weakNodes: WeakNodeInsight[];
 }
 
 const StatCard: React.FC<{ title: string; value: string | number; subtext?: string; color?: string; icon?: React.ReactNode }> = ({ title, value, subtext, color = "text-slate-800", icon }) => (
@@ -39,26 +49,15 @@ const StatCard: React.FC<{ title: string; value: string | number; subtext?: stri
     </div>
 );
 
-// --- 1. COLLABORATOR VIEW ---
 const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
     const { 
-        onStartDailyReview, level, currentXp, xpForNextLevel, mastery, 
+        onStartDailyReview, onStartWeakReview, level, currentXp, xpForNextLevel, mastery, 
         dueCount, dueOnlyCount, newCount, totalItems, masteredNodes, totalNodes, 
-        streak, onNewSet
+        streak, onNewSet, history14, predictions, weakNodes
     } = props;
 
-    // Calculs réels pour progression
-    const masteredRatio = totalNodes > 0 ? (masteredNodes / totalNodes) * 100 : 0;
-    // Heuristique : On considère le contenu couvert si on a au moins 3 items par noeud
-    const coverageRatio = totalNodes > 0 ? Math.min(100, (totalItems / Math.max(1, totalNodes * 3)) * 100) : 0;
+    const hasActivity = history14.some(d => d.studiedCount > 0);
 
-    const progressionStats = [
-        { label: "Maîtrise globale", value: mastery, color: "bg-indigo-600" },
-        { label: "Concepts acquis", value: masteredRatio, color: "bg-emerald-500" },
-        { label: "Contenu couvert", value: coverageRatio, color: "bg-amber-500" }
-    ];
-
-    // État vide
     if (totalNodes === 0 && totalItems === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border-2 border-dashed border-slate-200 text-center animate-fade-in">
@@ -66,7 +65,7 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     <BookOpenIcon className="w-12 h-12 text-slate-300" />
                 </div>
                 <h3 className="text-2xl font-black text-slate-800 mb-2">Votre jungle est vide</h3>
-                <p className="text-slate-400 font-medium max-w-sm mb-8">Importez votre premier document pour que l'IA puisse générer votre parcours de maîtrise personnalisé.</p>
+                <p className="text-slate-400 font-medium max-w-sm mb-8">Importez votre premier document pour que l'IA puisse générer votre parcours.</p>
                 <button onClick={onNewSet} className="bg-indigo-600 text-white font-black py-4 px-10 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center gap-2">
                     <AddIcon className="w-5 h-5" /> Importer du contenu
                 </button>
@@ -76,7 +75,6 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Grille de statistiques principales */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard 
                     title="À réviser" 
@@ -88,7 +86,7 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                 <StatCard 
                     title="Série" 
                     value={`${streak || 0} Jours`} 
-                    subtext="Assiduité actuelle" 
+                    subtext="Activité consécutive" 
                     color="text-amber-500"
                     icon={<span className="text-xl">🔥</span>}
                 />
@@ -108,14 +106,13 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                 />
             </div>
 
-            {/* Widgets Centraux */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Progression du Savoir */}
+                {/* Historique d'Activité Réel */}
                 <div className="lg:col-span-2 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                     <div className="flex justify-between items-center mb-8">
                         <div>
-                            <h3 className="text-xl font-black text-slate-800">Progression du Savoir</h3>
-                            <p className="text-sm text-slate-400 font-medium">Visualisation réelle de vos acquis document par document</p>
+                            <h3 className="text-xl font-black text-slate-800">Activité (14j)</h3>
+                            <p className="text-sm text-slate-400 font-medium">Nombre d'items étudiés quotidiennement</p>
                         </div>
                         <div className="text-right">
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Niveau</span>
@@ -123,28 +120,50 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                         </div>
                     </div>
                     
-                    <div className="space-y-8">
-                        {progressionStats.map((stat, i) => (
-                            <div key={i}>
-                                <div className="flex justify-between items-end mb-2">
-                                    <span className="text-xs font-black text-slate-700 uppercase">{stat.label}</span>
-                                    <span className="text-sm font-black text-slate-900">{Math.round(stat.value)}%</span>
-                                </div>
-                                <div className="w-full bg-slate-50 h-3 rounded-full overflow-hidden border border-slate-100 shadow-inner">
-                                    <div 
-                                        className={`h-full rounded-full transition-all duration-1000 ease-out ${stat.color}`} 
-                                        style={{ width: `${stat.value}%` }}
-                                    ></div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    {hasActivity ? (
+                        <div className="h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={history14}>
+                                    <defs>
+                                        <linearGradient id="colorStudied" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis 
+                                        dataKey="date" 
+                                        axisLine={false} 
+                                        tickLine={false} 
+                                        tick={{fill: '#94a3b8', fontSize: 10}}
+                                        tickFormatter={(val) => val.split('-').slice(1).reverse().join('/')}
+                                    />
+                                    <YAxis hide domain={[0, 'auto']} />
+                                    <Tooltip 
+                                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                                        labelFormatter={(label) => `Date: ${label}`}
+                                    />
+                                    <Area 
+                                        type="monotone" 
+                                        dataKey="studiedCount" 
+                                        stroke="#6366f1" 
+                                        strokeWidth={3} 
+                                        fillOpacity={1} 
+                                        fill="url(#colorStudied)" 
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-64 flex flex-col items-center justify-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                            <p className="text-slate-400 font-bold">Aucune activité enregistrée sur les 14 derniers jours.</p>
+                            <button onClick={onStartDailyReview} className="mt-4 text-indigo-600 font-black text-sm hover:underline">Commencer maintenant</button>
+                        </div>
+                    )}
 
-                    <div className="mt-12 pt-8 border-t border-slate-50 flex items-center justify-between">
+                    <div className="mt-8 pt-8 border-t border-slate-50 flex items-center justify-between">
                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-lg">
-                                {level}
-                            </div>
+                            <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-lg">{level}</div>
                             <div>
                                 <p className="text-sm font-black text-slate-800">{currentXp} / {xpForNextLevel} XP</p>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">XP restant : {Math.max(0, xpForNextLevel - currentXp)}</p>
@@ -156,53 +175,109 @@ const CollaboratorDashboard: React.FC<DashboardProps> = (props) => {
                     </div>
                 </div>
 
-                {/* Backlog & Actions Rapides */}
+                {/* Prédictions IA (MVP) */}
                 <div className="flex flex-col gap-6">
-                    <div className="bg-slate-900 p-8 rounded-[40px] text-white shadow-xl shadow-slate-200 flex flex-col justify-between h-full relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span>
-                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Objectif du jour</span>
+                    <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex-grow">
+                        <div className="flex items-center gap-2 mb-6">
+                            <LightBulbIcon className="w-5 h-5 text-indigo-500" />
+                            <h3 className="text-lg font-black text-slate-800">Prédictions IA</h3>
+                        </div>
+                        
+                        <div className="space-y-6">
+                            <div className="p-4 bg-slate-50 rounded-2xl">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Risque Backlog (48h)</p>
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-3 h-3 rounded-full ${predictions.backlogRisk === 'Élevé' ? 'bg-rose-500' : predictions.backlogRisk === 'Modéré' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+                                    <p className="font-black text-slate-800">{predictions.backlogRisk}</p>
+                                </div>
                             </div>
-                            <h4 className="text-2xl font-black mb-2">
-                                {dueCount >= 20 ? "Réduire le backlog" : dueCount > 0 ? "Consolider vos acquis" : "Explorer le savoir"}
-                            </h4>
-                            <p className="text-slate-400 text-sm font-medium leading-relaxed">
-                                {dueCount > 0 
-                                    ? `Vous avez ${dueCount} items en attente. Une session optimisera votre rétention à long terme.`
-                                    : "Votre mémoire est à jour. Pourquoi ne pas importer un nouveau document pour continuer l'expansion ?"}
-                            </p>
+
+                            <div className="p-4 bg-slate-50 rounded-2xl">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Maintien des acquis</p>
+                                <p className="font-black text-slate-800">
+                                    {predictions.estDaysToClear ? `${predictions.estDaysToClear} jour(s)` : "Calibrage requis"}
+                                </p>
+                                <p className="text-[10px] text-slate-400 font-medium mt-1">Pour vider le backlog actuel</p>
+                            </div>
+
+                            <div className="p-4 bg-slate-50 rounded-2xl">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Fenêtre optimale</p>
+                                <p className="font-black text-slate-800">
+                                    {predictions.peakHour !== null ? `Vers ${predictions.peakHour}h00` : "Non déterminée"}
+                                </p>
+                                <p className="text-[10px] text-slate-400 font-medium mt-1">Basé sur votre historique</p>
+                            </div>
                         </div>
-                        <div className="mt-8 space-y-3 relative z-10">
-                            <button 
-                                onClick={onStartDailyReview}
-                                disabled={dueCount === 0}
-                                className={`w-full py-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 ${dueCount > 0 ? 'bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-900/40' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                            >
-                                <ClockIcon className="w-4 h-4" />
-                                Réviser maintenant
-                            </button>
-                            <button 
-                                onClick={onNewSet}
-                                className="w-full py-4 bg-slate-800 text-slate-300 rounded-2xl font-black text-sm hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
-                            >
-                                <AddIcon className="w-4 h-4" />
-                                Importer / Enrichir
-                            </button>
-                        </div>
+
+                        <button 
+                            onClick={dueCount > 0 ? onStartDailyReview : onNewSet}
+                            className="w-full mt-8 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                        >
+                            {dueCount > 0 ? "Gérer le Backlog" : "Nouvel Import"}
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {/* Widget de Renforcement IA (Nouveauté 8.1) */}
+            {weakNodes.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-1 bg-rose-600 p-8 rounded-[40px] text-white shadow-xl shadow-rose-200 flex flex-col justify-between">
+                        <div>
+                            <div className="flex items-center gap-2 mb-4">
+                                <span className="w-3 h-3 bg-white rounded-full animate-ping"></span>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-rose-200">Alerte Rétention</span>
+                            </div>
+                            <h4 className="text-2xl font-black mb-2">Renforcement IA</h4>
+                            <p className="text-rose-100 text-sm font-medium leading-relaxed">
+                                {weakNodes.length} concepts présentent des signes de fragilité cognitive. Une session de rappel focalisée est recommandée.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={onStartWeakReview}
+                            className="mt-8 py-4 bg-white text-rose-600 font-black rounded-2xl shadow-lg hover:bg-rose-50 transition-all transform hover:scale-[1.02]"
+                        >
+                            Renforcer maintenant
+                        </button>
+                    </div>
+
+                    <div className="lg:col-span-2 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
+                        <h3 className="text-xl font-black text-slate-800 mb-6">Points de vigilance</h3>
+                        <div className="space-y-4">
+                            {weakNodes.map((node) => (
+                                <div key={node.nodeId} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-rose-200 transition-colors">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-3">
+                                            <p className="font-bold text-slate-800 group-hover:text-rose-600 transition-colors truncate max-w-[200px]">{node.label}</p>
+                                            {node.priority > 60 && (
+                                                <span className="px-2 py-0.5 bg-rose-100 text-rose-600 text-[8px] font-black rounded uppercase tracking-widest">Critique</span>
+                                            )}
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Cause : {node.reason}</p>
+                                    </div>
+                                    <div className="flex gap-4 text-right">
+                                        <div>
+                                            <p className="text-[10px] text-slate-400 font-black uppercase">Maîtrise</p>
+                                            <p className={`font-black text-sm ${node.confidence < 40 ? 'text-rose-500' : 'text-amber-500'}`}>{node.confidence}%</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] text-slate-400 font-black uppercase">Stabilité</p>
+                                            <p className="font-black text-sm text-slate-700">{node.stability}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-// --- 2. MANAGER VIEW ---
 const ManagerDashboard: React.FC<DashboardProps> = (props) => {
     const { mastery, dueCount, totalItems, masteredNodes, totalNodes } = props;
 
-    // Déterminisme des Insights
     const healthScore = Math.max(0, Math.min(100, 100 - dueCount * 2));
     const retentionStatus = mastery >= 70 ? "Stable" : mastery >= 40 ? "Modérée" : "Critique";
     const backlogSeverity = dueCount >= 30 ? "Risque Élevé" : dueCount >= 10 ? "Modéré" : "Sain";
@@ -210,14 +285,14 @@ const ManagerDashboard: React.FC<DashboardProps> = (props) => {
     const insights = [
         {
             title: `Charge de révision : ${backlogSeverity}`,
-            evidence: `Backlog de ${dueCount} items. ${dueCount > 20 ? "Risque élevé de décrochage cognitif." : "Charge de travail sous contrôle."}`,
-            action: dueCount > 0 ? "Planifier une session de rattrapage" : "Encourager l'expansion",
+            evidence: `Backlog de ${dueCount} items. ${dueCount > 20 ? "Risque de décrochage identifié." : "Charge sous contrôle."}`,
+            action: dueCount > 0 ? "Planifier session de rappel" : "Encourager expansion",
             type: dueCount >= 20 ? 'risk' : 'info'
         },
         {
             title: `Rétention globale : ${retentionStatus}`,
-            evidence: `Indice de maîtrise à ${mastery}%. ${mastery < 60 ? "Nécessite un renforcement des fondamentaux." : "Base de connaissance solide."}`,
-            action: mastery < 70 ? "Activer le mode Remédiation" : "Passer en mode Socratique",
+            evidence: `Indice de maîtrise à ${mastery}%. ${mastery < 60 ? "Renforcement requis." : "Base solide."}`,
+            action: mastery < 70 ? "Activer Remédiation" : "Mode Socratique",
             type: mastery < 60 ? 'risk' : 'success'
         }
     ];
@@ -231,10 +306,9 @@ const ManagerDashboard: React.FC<DashboardProps> = (props) => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Insights Réels */}
             <section>
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <LightBulbIcon className="w-4 h-4" /> Analyse prédictive du savoir
+                    <LightBulbIcon className="w-4 h-4" /> Analyse du flux de savoir
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {insights.map((ins, i) => (
@@ -246,9 +320,7 @@ const ManagerDashboard: React.FC<DashboardProps> = (props) => {
                                         {ins.type === 'risk' ? 'ALERTE' : 'CONSTAT'}
                                     </span>
                                 </div>
-                                <p className="text-sm text-slate-600 font-medium leading-relaxed mb-8">
-                                    {ins.evidence}
-                                </p>
+                                <p className="text-sm text-slate-600 font-medium leading-relaxed mb-8">{ins.evidence}</p>
                             </div>
                             <button className={`w-full py-4 px-6 rounded-2xl font-black text-xs transition-all shadow-md ${ins.type === 'risk' ? 'bg-rose-600 text-white hover:bg-rose-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
                                 {ins.action}
@@ -259,25 +331,21 @@ const ManagerDashboard: React.FC<DashboardProps> = (props) => {
             </section>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Visualisation Metrics réelles */}
                 <div className="lg:col-span-2 bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
-                    <h3 className="text-xl font-black text-slate-800 mb-8">Metrics de l'Espace de Savoir</h3>
+                    <h3 className="text-xl font-black text-slate-800 mb-8">Metrics de l'Espace</h3>
                     <div className="h-64">
                          <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={chartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 900}} />
                                 <YAxis hide />
-                                <Tooltip 
-                                    contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', fontWeight: 'bold' }}
-                                />
+                                <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', fontWeight: 'bold' }} />
                                 <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={4} fillOpacity={0.1} fill="#6366f1" />
                             </AreaChart>
                          </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* KPIs de Santé réels */}
                 <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100">
                     <h3 className="text-xl font-black text-slate-800 mb-8">Santé de l'Espace</h3>
                     <div className="space-y-6">
@@ -322,10 +390,10 @@ export const DashboardView: React.FC<DashboardProps> = (props) => {
                         </p>
                     </div>
                     {props.streak && props.streak > 0 && (
-                        <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3 animate-bounce-short">
+                        <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-3">
                             <span className="text-2xl" aria-hidden="true">🔥</span>
                             <div>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Série actuelle</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Série</p>
                                 <p className="text-lg font-black text-slate-900">{props.streak} Jours</p>
                             </div>
                         </div>
@@ -334,15 +402,6 @@ export const DashboardView: React.FC<DashboardProps> = (props) => {
 
                 {props.role === UserRole.Manager ? <ManagerDashboard {...props} /> : <CollaboratorDashboard {...props} />}
              </div>
-             <style>{`
-                @keyframes bounce-short {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-4px); }
-                }
-                .animate-bounce-short {
-                    animation: bounce-short 2s ease-in-out infinite;
-                }
-             `}</style>
         </div>
     );
 };
